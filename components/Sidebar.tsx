@@ -17,9 +17,9 @@ export function Sidebar({ t, user, locale }: { t: Pick<Dict, "nav" | "brand">; u
     {
       title: n.groupResearch,
       items: [
-        { href: "/news", label: n.news, icon: Newspaper, count: 24 },
+        { href: "/news", label: n.news, icon: Newspaper },
         { href: "/analysis", label: n.analysis, icon: TrendingUp },
-        { href: "/opportunities", label: n.opportunities, icon: Target, count: 8 },
+        { href: "/opportunities", label: n.opportunities, icon: Target },
       ],
     },
     { title: n.groupPublish, items: [{ href: "/library", label: n.library, icon: Folder }, { href: "/calendar", label: n.calendar, icon: CalendarDays }] },
