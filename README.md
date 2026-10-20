@@ -12,7 +12,7 @@ npm run dev        # http://localhost:3000
 npm test           # news feed parser and duplicate-detection checks
 ```
 
-Optional, for Arabic news summaries: create `.env.local` with `ANTHROPIC_API_KEY=...` and restart. Without it the news page still works and shows the original English text.
+AI is off by default and nothing paid is called. To turn it on later, create `.env.local` with `AI_PROVIDER=claude` and `ANTHROPIC_API_KEY=...`, then restart. Without both, every page still works and AI features show as unavailable.
 
 Sign in with either account. Version 1 uses one temporary local password, `studio` (override it with `LOCAL_PASSWORD`). Account settings are stored in `data/db.json`, which is created on first run and not committed.
 
@@ -22,8 +22,8 @@ Sign in with either account. Version 1 uses one temporary local password, `studi
 | --- | --- |
 | 1. Foundation: RTL shell, Arabic/English interface, login, Settings, Dashboard | Done |
 | 2. News monitor (official sources) | Done |
-| 3. Market analysis + opportunities | Next |
-| 4. Reels + Carousel studios | Planned |
+| 3. Market analysis + opportunities | Done |
+| 4. Reels + Carousel studios | Next |
 | 5. Library + calendar | Planned |
 
 Figures and headlines on the dashboard are sample content from the design and are labelled as such in the app.
@@ -45,16 +45,28 @@ How it works:
 - Feeds refresh when the page is opened and the last check is older than 30 minutes, or with "Refresh now". A source that fails keeps its earlier stories and shows its error on its card.
 - Location (Toronto & GTA, Ontario, Canada) and topic are keyword tags from the story's own text, labelled as automatic in the app.
 - The same story from two sources within 3 days is grouped under the primary official source.
-- Arabic title and summary are written by Claude from the source text only, on request, and cached in `data/news.json`.
+- Arabic title and summary are written by Claude from the source text only, on request, when AI is turned on, and cached in `data/news.json`.
 - Selected stories are saved per user for the later analysis and content steps.
 
 Stories are stored in `data/news.json` (not committed). The machine running the app needs normal internet access to the Canadian sites.
+
+## Market analysis and content opportunities (step 3)
+
+Both pages read the stories already collected by the news monitor. Nothing is fetched or invented here, and duplicates are left out.
+
+- **Scores** (`lib/analysis/score.ts`): two rule-based scores from 0 to 100. Relevance comes from keyword signals in the story text (prices and sales, Bank of Canada decisions, mortgages, first-time buyers, policy and taxes, supply, rentals; general economic news is down-weighted), location, source and age. Opportunity weights relevance 35%, usual audience interest 25%, recency 20% and client potential 20%. Every point is listed with its reason in Arabic and English, and the app labels the scores as automatic estimates, not AI and not a performance prediction.
+- **Market Analysis** (`/analysis`): ranked stories, then per story the verified source, key figures quoted word for word from the source, general audience rules (labelled as general, no forecasts or good/bad direction), limitations, a glossary, and the AI tasks shown as unavailable.
+- **Content Opportunities** (`/opportunities`): Reel and carousel angles from fixed rules per news category (`lib/opportunities/angles.ts`), with goal and audiences. Filters: audience (first-time buyers, sellers, homeowners, investors, Arab audiences, English-speaking Canadians), format, and content language (Arabic, English or both, defaulting to the user's setting).
+- **AI layer** (`lib/ai/`): one interface for translation, market impact, Arabic explanations, Reel scripts, carousels, hooks and marketing copy. Only translation is implemented; the rest are declared for later. Pages never call a provider directly.
 
 ## Structure
 
 - `lib/i18n.ts`: interface strings, Arabic first, English optional
 - `lib/db.ts`: local data store (to be replaced by Supabase)
 - `lib/sample.ts`: dashboard sample content until the dashboard reads from the news store
-- `lib/news/`: feed sources, tagging and duplicate detection, store, Arabic translation
+- `lib/news/`: feed sources, tagging, filters and duplicate detection, store
+- `lib/analysis/`, `lib/opportunities/`: scoring, audience rules and content angles
+- `lib/ai/`: AI provider interface (off by default)
+- `tests/`: `npm test` runs feed parsing, scoring, classification, filtering and duplicate checks
 - `components/ui.tsx`: shared UI, including `Bidi` for numbers inside Arabic text
 - `app/globals.css`: design tokens copied from the Figma variables

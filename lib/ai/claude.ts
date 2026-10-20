@@ -2,11 +2,13 @@ import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import type { NewsItem, Translation } from "./types";
+import type { NewsItem, Translation } from "../news/types";
+import { AiError, type AiProvider } from "./types";
+
+// Claude provider. Only translation is implemented today; the other tasks in
+// ./types are declared so they can be added here one at a time.
 
 const MODEL = "claude-opus-5-5";
-
-export const translationAvailable = () => Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 
 const Output = z.object({
   title_ar: z.string(),
@@ -23,10 +25,7 @@ Rules:
 - title_ar: one line. summary_ar: two to four short sentences.
 - If the source text is too short to summarize, translate it as-is without padding.`;
 
-export class TranslationError extends Error {}
-
-export async function translateItem(item: NewsItem): Promise<Translation> {
-  if (!translationAvailable()) throw new TranslationError("missing_key");
+async function translate(item: NewsItem): Promise<Translation> {
   const client = new Anthropic();
   const source = [`Title: ${item.title}`, `Publisher: ${item.publisher}`, item.publishedAt && `Published: ${item.publishedAt}`, `Text: ${item.body || item.summary}`]
     .filter(Boolean)
@@ -39,14 +38,20 @@ export async function translateItem(item: NewsItem): Promise<Translation> {
       messages: [{ role: "user", content: source }],
       output_config: { effort: "low", format: zodOutputFormat(Output) },
     });
-    if (res.stop_reason === "refusal" || !res.parsed_output) throw new TranslationError("no_output");
+    if (res.stop_reason === "refusal" || !res.parsed_output) throw new AiError("no_output");
     return { titleAr: res.parsed_output.title_ar.trim(), summaryAr: res.parsed_output.summary_ar.trim(), model: MODEL, createdAt: new Date().toISOString() };
   } catch (e) {
-    if (e instanceof TranslationError) throw e;
-    if (e instanceof Anthropic.AuthenticationError) throw new TranslationError("bad_key");
-    if (e instanceof Anthropic.RateLimitError) throw new TranslationError("rate_limited");
-    if (e instanceof Anthropic.APIConnectionError) throw new TranslationError("unreachable");
-    if (e instanceof Anthropic.APIError) throw new TranslationError(`api_${e.status}`);
+    if (e instanceof AiError) throw e;
+    if (e instanceof Anthropic.AuthenticationError) throw new AiError("bad_key");
+    if (e instanceof Anthropic.RateLimitError) throw new AiError("rate_limited");
+    if (e instanceof Anthropic.APIConnectionError) throw new AiError("unreachable");
+    if (e instanceof Anthropic.APIError) throw new AiError(`api_${e.status}`);
     throw e;
   }
 }
+
+export const claudeProvider: AiProvider = {
+  id: "claude",
+  tasks: new Set(["translate"]),
+  translate,
+};

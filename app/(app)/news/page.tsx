@@ -3,9 +3,10 @@ import { AlertTriangle, BadgeCheck, CircleSlash, Copy, ExternalLink, Inbox, Info
 import { TopBar } from "@/components/TopBar";
 import { Bidi, Chip, cx } from "@/components/ui";
 import { getContext } from "@/lib/context";
+import { filterItems } from "@/lib/news/filter";
 import { getNews, sortItems } from "@/lib/news/store";
 import { SOURCES, UNAVAILABLE_SOURCES } from "@/lib/news/sources";
-import { translationAvailable } from "@/lib/news/translate";
+import { aiCan } from "@/lib/ai";
 import type { Location, NewsItem, SourceId, Topic } from "@/lib/news/types";
 import { NewsFilters, RefreshButton, SelectButton, TranslateButton } from "./NewsControls";
 
@@ -33,25 +34,8 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
 
   const selections = new Set(store.selections[user.id] ?? []);
   const all = Object.values(store.items);
-  const days = sp.days === "all" ? null : Number(sp.days ?? 30);
-  const since = days ? Date.now() - days * 86_400_000 : null;
-  const q = sp.q?.toLowerCase();
-
   const filtered = sortItems(
-    all.filter((i) => {
-      if (sp.dup !== "1" && i.duplicateOf) return false;
-      if (sp.topic && i.topic !== sp.topic) return false;
-      if (sp.loc && i.location !== sp.loc) return false;
-      if (sp.src && i.sourceId !== sp.src) return false;
-      if (sp.sel === "1" && !selections.has(i.id)) return false;
-      if (since && i.publishedAt && Date.parse(i.publishedAt) < since) return false;
-      if (q) {
-        const tr = store.translations[i.id];
-        const hay = `${i.title} ${i.summary} ${i.publisher} ${tr?.titleAr ?? ""} ${tr?.summaryAr ?? ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    }),
+    filterItems(store, sp, selections),
     sp.sort === "newest" ? "newest" : "local",
   );
 
@@ -201,7 +185,7 @@ export default async function NewsPage({ searchParams }: { searchParams: Promise
                     fmt={fmt}
                     sourceName={sourceName(current.sourceId)}
                     translation={store.translations[current.id]}
-                    canTranslate={translationAvailable()}
+                    canTranslate={aiCan("translate")}
                     selected={selections.has(current.id)}
                     duplicates={duplicatesOf(current)}
                     linkFor={linkFor}

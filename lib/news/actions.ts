@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { requireUser } from "../session";
 import { readNews, refreshNews, saveTranslation, toggleSelection } from "./store";
-import { TranslationError, translateItem } from "./translate";
+import { getAi } from "../ai";
+import { AiError } from "../ai/types";
 
 export async function refreshNow() {
   await requireUser();
@@ -16,10 +17,12 @@ export async function translateNews(id: string): Promise<{ error?: string }> {
   const store = await readNews();
   const item = store.items[id];
   if (!item) return { error: "not_found" };
+  const ai = await getAi();
+  if (!ai) return { error: "missing_key" };
   try {
-    await saveTranslation(id, await translateItem(item));
+    await saveTranslation(id, await ai.translate(item));
   } catch (e) {
-    return { error: e instanceof TranslationError ? e.message : "unknown" };
+    return { error: e instanceof AiError ? e.message : "unknown" };
   }
   revalidatePath("/news");
   return {};

@@ -39,6 +39,8 @@ export function titleTokens(title: string) {
   return new Set(
     title
       .toLowerCase()
+      // Canadian government releases write "per cent"; BoC and StatCan write "%".
+      .replace(/\s?(per cent|percent)\b/g, "%")
       .replace(/[^a-z0-9%$. ]+/g, " ")
       .split(/\s+/)
       .filter((w) => w.length > 2 && !STOP.has(w)),
