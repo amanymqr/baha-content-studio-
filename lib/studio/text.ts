@@ -1,12 +1,25 @@
+import { torontoDate } from "./library";
 import type { Draft, DraftContent, DraftLang, ReelSegment, Slide } from "./types";
 
 // Plain-text and Markdown versions of a draft, used by the copy buttons and the
 // export. Reviewer notes are only included in the export, under their own heading.
 
 const L = {
-  ar: { hook: "الافتتاحية", script: "السكربت", onScreen: "على الشاشة", shot: "اللقطة", caption: "الكابشن", cta: "الدعوة", tags: "الهاشتاغات", slide: "الشريحة", visual: "اقتراح التصميم", highlight: "المعلومة البارزة", source: "المصدر الأصلي", published: "تاريخ النشر", notes: "ملاحظات للمراجعة", status: "الحالة", note: "مسودة من القوالب، بحاجة لمراجعة بشرية قبل النشر.", noDate: "بدون تاريخ" },
-  en: { hook: "Hook", script: "Script", onScreen: "On screen", shot: "Shot", caption: "Caption", cta: "Call to action", tags: "Hashtags", slide: "Slide", visual: "Design suggestion", highlight: "Key point", source: "Original source", published: "Published", notes: "Review notes", status: "Status", note: "Template draft. Needs human review before publishing.", noDate: "no date" },
-};
+  ar: {
+    hook: "الافتتاحية", script: "السكربت", onScreen: "على الشاشة", shot: "اللقطة", caption: "الكابشن", cta: "الدعوة", tags: "الهاشتاغات", slide: "الشريحة", visual: "اقتراح التصميم", highlight: "المعلومة البارزة",
+    source: "الخبر الأصلي", publisher: "الجهة الناشرة", link: "رابط المصدر", published: "تاريخ الخبر", created: "تاريخ إنشاء المسودة", updated: "آخر تعديل", notes: "ملاحظات للمراجعة", status: "حالة المراجعة", format: "نوع المحتوى", language: "اللغة",
+    note: "مسودة من القوالب، بحاجة لمراجعة بشرية قبل النشر.", noDate: "بدون تاريخ",
+    formats: { reel: "ريل", carousel: "كاروسيل" }, langs: { ar: "عربي", en: "إنجليزي", both: "عربي وإنجليزي" },
+    statuses: { draft: "مسودة", review: "قيد المراجعة", changes: "بحاجة لتعديلات", approved: "معتمدة", ready: "جاهزة للتصدير" },
+  },
+  en: {
+    hook: "Hook", script: "Script", onScreen: "On screen", shot: "Shot", caption: "Caption", cta: "Call to action", tags: "Hashtags", slide: "Slide", visual: "Design suggestion", highlight: "Key point",
+    source: "Original story", publisher: "Publisher", link: "Source link", published: "Story date", created: "Draft created", updated: "Last edited", notes: "Review notes", status: "Review status", format: "Format", language: "Language",
+    note: "Template draft. Needs human review before publishing.", noDate: "no date",
+    formats: { reel: "Reel", carousel: "Carousel" }, langs: { ar: "Arabic", en: "English", both: "Arabic and English" },
+    statuses: { draft: "Draft", review: "In review", changes: "Needs changes", approved: "Approved", ready: "Ready to export" },
+  },
+} satisfies Record<DraftLang, Record<string, unknown>>;
 
 const time = (s: number) => `0:${String(s).padStart(2, "0")}`;
 
@@ -33,14 +46,37 @@ export function carouselText(c: DraftContent, lang: DraftLang) {
   return (c.slides ?? []).map((s, i) => slideText(s, i + 1, lang)).join("\n\n");
 }
 
-/** Full Markdown export: source block, each language version, and review notes. */
-export function draftMarkdown(d: Pick<Draft, "story" | "content" | "status" | "format">, statusLabel: string) {
+/** What an export needs. Older callers may leave out the dates and language. */
+export type ExportDraft = Pick<Draft, "story" | "content" | "status" | "format"> & Partial<Pick<Draft, "id" | "language" | "audience" | "createdAt" | "updatedAt" | "generatedBy">>;
+
+const langsOf = (d: ExportDraft) => (["ar", "en"] as const).filter((l) => d.content[l]);
+const day = (iso: string | null | undefined, t: (typeof L)[DraftLang]) => (iso ? torontoDate(iso) : t.noDate);
+
+/** Full Markdown export: details, each language version, and review notes. */
+export function draftMarkdown(d: ExportDraft) {
   const out: string[] = [];
-  const first = (Object.keys(d.content) as DraftLang[])[0] ?? "ar";
+  const langs = langsOf(d);
+  const first = langs[0] ?? "ar";
   const t = L[first];
-  out.push(`# ${d.content[first]?.title ?? d.story.title}`, "", `> ${L.ar.note} / ${L.en.note}`, "");
-  out.push(`- ${t.status}: ${statusLabel}`, `- ${t.source}: ${d.story.publisher} — ${d.story.title}`, `- ${d.story.url}`, `- ${t.published}: ${d.story.publishedAt ? d.story.publishedAt.slice(0, 10) : t.noDate}`, "");
-  for (const lang of Object.keys(d.content) as DraftLang[]) {
+  const language = d.language ?? (langs.length === 2 ? "both" : first);
+  out.push(`# ${d.content[first]?.title || d.story.title}`, "", `> ${L.ar.note} / ${L.en.note}`, "");
+  out.push(
+    `- ${t.format}: ${t.formats[d.format]}`,
+    `- ${t.language}: ${t.langs[language]}`,
+    `- ${t.status}: ${t.statuses[d.status]}`,
+    ...(d.createdAt ? [`- ${t.created}: ${day(d.createdAt, t)}`] : []),
+    ...(d.updatedAt ? [`- ${t.updated}: ${day(d.updatedAt, t)}`] : []),
+    "",
+    `## ${t.source}`,
+    "",
+    `- ${d.story.title}`,
+    ...(d.story.titleAr ? [`- ${d.story.titleAr}`] : []),
+    `- ${t.publisher}: ${d.story.publisher}`,
+    `- ${t.published}: ${day(d.story.publishedAt, t)}`,
+    `- ${t.link}: ${d.story.url}`,
+    "",
+  );
+  for (const lang of langs) {
     const c = d.content[lang]!;
     const tl = L[lang];
     out.push(`## ${lang === "ar" ? "العربية" : "English"}`, "", `### ${c.title}`, "", `**${tl.hook}:** ${c.hook}`, "");
@@ -57,7 +93,33 @@ export function draftMarkdown(d: Pick<Draft, "story" | "content" | "status" | "f
   return out.join("\n");
 }
 
-/** Plain-text export: the Markdown without its markup. */
-export function draftPlainText(d: Parameters<typeof draftMarkdown>[0], statusLabel: string) {
-  return draftMarkdown(d, statusLabel).replace(/^#+\s/gm, "").replace(/\*\*/g, "").replace(/^> /gm, "");
+/** Plain-text export: the Markdown without its markup. Only line-leading markup is removed, so the text itself is untouched. */
+export function draftPlainText(d: ExportDraft) {
+  return draftMarkdown(d).replace(/^#+\s/gm, "").replace(/\*\*(.+?)\*\*/g, "$1").replace(/^> /gm, "");
+}
+
+/** Structured export for handing over or importing elsewhere. Content is copied as stored, review notes included. */
+export function draftJson(d: ExportDraft) {
+  const langs = langsOf(d);
+  return JSON.stringify(
+    {
+      format: "baha-content-draft",
+      version: 1,
+      id: d.id ?? null,
+      title: d.content[langs[0]]?.title || d.story.title,
+      contentType: d.format,
+      language: d.language ?? (langs.length === 2 ? "both" : langs[0]),
+      audience: d.audience ?? null,
+      status: d.status,
+      statusLabel: { ar: L.ar.statuses[d.status], en: L.en.statuses[d.status] },
+      createdAt: d.createdAt ?? null,
+      updatedAt: d.updatedAt ?? null,
+      generatedBy: d.generatedBy ?? "template",
+      reviewNote: { ar: L.ar.note, en: L.en.note },
+      source: { title: d.story.title, titleAr: d.story.titleAr ?? null, publisher: d.story.publisher, url: d.story.url, publishedAt: d.story.publishedAt, facts: d.story.facts },
+      content: Object.fromEntries(langs.map((l) => [l, d.content[l]])),
+    },
+    null,
+    2,
+  );
 }

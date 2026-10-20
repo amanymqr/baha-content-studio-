@@ -4,7 +4,7 @@ import { TopBar } from "@/components/TopBar";
 import { ButtonLink } from "@/components/ui";
 import { getContext } from "@/lib/context";
 
-const SECTIONS = ["library", "calendar"] as const;
+const SECTIONS = ["calendar"] as const;
 
 export default async function Section({ params }: { params: Promise<{ section: string }> }) {
   const { section } = await params;

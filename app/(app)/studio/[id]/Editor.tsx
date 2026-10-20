@@ -3,18 +3,19 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
-import { BadgeCheck, CalendarClock, ChevronLeft, ChevronRight, Copy, Download, ExternalLink, FileText, Info, Loader2, Plus, Quote, RefreshCw, Save, Shuffle, Trash2, TriangleAlert, X } from "lucide-react";
+import { BadgeCheck, Braces, CalendarClock, Check, ChevronLeft, ChevronRight, Copy, CopyPlus, Download, ExternalLink, FileText, History, Info, Loader2, Plus, Quote, RefreshCw, Save, Shuffle, Trash2, TriangleAlert, X } from "lucide-react";
+import { useConfirm, useToast } from "@/components/Feedback";
+import { STATUS_TONE, StatusChip } from "@/components/StatusChip";
 import { Bidi, Button, Chip, cx } from "@/components/ui";
 import { CATEGORY_LABEL } from "@/lib/analysis/rules";
 import type { Dict } from "@/lib/i18n";
 import type { Locale } from "@/lib/db";
-import { deleteDraft, regenerateDraft, saveDraft } from "@/lib/studio/actions";
+import { deleteDraft, duplicateDraft, regenerateDraft, saveDraft, setDraftStatus } from "@/lib/studio/actions";
 import { alternatives, formatStoryDate, storyAgeDays } from "@/lib/studio/generate";
-import { carouselText, contentText, draftMarkdown, draftPlainText, segmentText, slideText } from "@/lib/studio/text";
+import { carouselText, contentText, draftJson, draftMarkdown, draftPlainText, segmentText, slideText } from "@/lib/studio/text";
 import { AUDIENCES, DURATIONS, SLIDE_MAX, SLIDE_MIN, STATUSES, type Draft, type DraftContent, type DraftLang, type DraftStatus, type Kind, type ReelSegment, type Slide } from "@/lib/studio/types";
 
 type T = Dict["studio"];
-type Toast = { text: string; tone: "ok" | "error" } | null;
 
 const STALE_DAYS = 14;
 const KIND_TONE: Record<Kind, "positive" | "neutral" | "accent"> = { fact: "positive", explain: "neutral", cta: "accent" };
@@ -48,7 +49,17 @@ function download(name: string, text: string, type: string) {
 
 const dirOf = (lang: DraftLang) => (lang === "ar" ? "rtl" : "ltr");
 
-export function Editor({ initial, t, locale, categoryLabel, aiWriting, now }: { initial: Draft; t: T; locale: Locale; categoryLabel: string; aiWriting: boolean; now: number }) {
+const STEP_ON: Record<(typeof STATUS_TONE)[DraftStatus], string> = {
+  neutral: "border-ink-2 bg-elevated text-ink",
+  warning: "border-warning bg-warning-tint text-warning",
+  negative: "border-negative bg-negative-tint text-negative",
+  accent: "border-accent bg-accent-tint text-accent",
+  positive: "border-positive bg-positive-tint text-positive",
+};
+
+const stamp = (locale: Locale, iso: string) => new Intl.DateTimeFormat(locale === "ar" ? "ar-u-nu-latn" : "en-CA", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Toronto" }).format(new Date(iso));
+
+export function Editor({ initial, t, locale, categoryLabel, aiWriting, now, people }: { initial: Draft; t: T; locale: Locale; categoryLabel: string; aiWriting: boolean; now: number; people: Record<string, string> }) {
   const router = useRouter();
   const [draft, setDraft] = useState(initial);
   const [content, setContent] = useState(initial.content);
@@ -56,7 +67,9 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now }: { 
   const [dirty, setDirty] = useState(false);
   const langs = Object.keys(content) as DraftLang[];
   const [lang, setLang] = useState<DraftLang>(langs.includes(locale) ? locale : langs[0]);
-  const [toast, setToast] = useState<Toast>(null);
+  const toast = useToast();
+  const setToast = toast.show;
+  const { confirm, view: confirmView } = useConfirm();
   const [error, setError] = useState<string | null>(null);
   const [saving, startSave] = useTransition();
   const [busy, startBusy] = useTransition();
@@ -66,17 +79,25 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now }: { 
   const age = storyAgeDays(draft.story, now);
 
   useEffect(() => {
-    if (!toast) return;
-    const id = setTimeout(() => setToast(null), 2600);
-    return () => clearTimeout(id);
-  }, [toast]);
-
-  useEffect(() => {
     if (!dirty) return;
     const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    // In-app links don't fire beforeunload, so ask before following one. Runs in the
+    // capture phase, ahead of the router's own click handling.
+    const guard = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement).closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!a || a.target === "_blank" || e.metaKey || e.ctrlKey || e.shiftKey || a.origin !== window.location.origin) return;
+      if (!window.confirm(t.leaveConfirm)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
     window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+    document.addEventListener("click", guard, true);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+      document.removeEventListener("click", guard, true);
+    };
+  }, [dirty, t.leaveConfirm]);
 
   const edit = (patch: Partial<DraftContent>) => {
     setContent((prev) => ({ ...prev, [lang]: { ...prev[lang]!, ...patch } }));
@@ -90,19 +111,46 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now }: { 
   const save = () =>
     startSave(async () => {
       setError(null);
-      const res = await saveDraft(draft.id, { status, content });
+      const res = await saveDraft(draft.id, { content });
       if ("error" in res) {
         setError(t.saveErrors[res.error as keyof T["saveErrors"]] ?? t.saveErrors.failed);
         setToast({ text: t.saveErrors.failed, tone: "error" });
         return;
       }
-      setDraft((d) => ({ ...d, status, content, updatedAt: res.updatedAt }));
+      setDraft(res.draft);
       setDirty(false);
       setToast({ text: t.saved, tone: "ok" });
+      router.refresh();
     });
 
-  const regenerate = (withSettings: boolean) => {
-    if (!window.confirm(t.regenerateConfirm)) return;
+  /** Status changes are saved at once. With unsaved edits, they are saved together after asking. */
+  const changeStatus = async (next: DraftStatus) => {
+    if (next === status || busy || saving) return;
+    const label = t.statuses[next];
+    if (next === "approved" && !(await confirm({ title: t.approveTitle, body: t.approveBody, confirm: t.approve, cancel: t.cancel }))) return;
+    if (dirty && !(await confirm({ title: t.dirtyStatusTitle, body: t.dirtyStatusBody.replace("{status}", label), confirm: t.saveAndChange, cancel: t.cancel }))) return;
+    startBusy(async () => {
+      setError(null);
+      const res = dirty ? await saveDraft(draft.id, { status: next, content }) : await setDraftStatus(draft.id, next);
+      if ("error" in res) return setToast({ text: t.saveErrors[res.error as keyof T["saveErrors"]] ?? t.saveErrors.failed, tone: "error" });
+      setStatus(next);
+      setDraft(res.draft);
+      setDirty(false);
+      setToast({ text: t.statusChanged.replace("{status}", label), tone: "ok" });
+      router.refresh();
+    });
+  };
+
+  const duplicate = () =>
+    startBusy(async () => {
+      const res = await duplicateDraft(draft.id);
+      if ("error" in res) return setToast({ text: t.saveErrors[res.error as keyof T["saveErrors"]] ?? t.saveErrors.failed, tone: "error" });
+      setToast({ text: t.duplicated, tone: "ok" });
+      router.push(`/studio/${res.id}`);
+    });
+
+  const regenerate = async (withSettings: boolean) => {
+    if (!(await confirm({ title: t.regenerateTitle, body: t.regenerateConfirm, confirm: t.regenerate, cancel: t.cancel, danger: true }))) return;
     startBusy(async () => {
       const res = await regenerateDraft(draft.id, withSettings ? settings : undefined);
       if ("error" in res) return setToast({ text: t.saveErrors[res.error as keyof T["saveErrors"]] ?? t.saveErrors.failed, tone: "error" });
@@ -116,19 +164,23 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now }: { 
     });
   };
 
-  const remove = () => {
-    if (!window.confirm(t.deleteConfirm)) return;
+  const remove = async () => {
+    if (!(await confirm({ title: t.deleteTitle, body: t.deleteConfirm, confirm: t.delete, cancel: t.cancel, danger: true }))) return;
     startBusy(async () => {
       await deleteDraft(draft.id);
-      router.push("/studio");
+      setDirty(false);
+      router.push("/library");
     });
   };
 
-  const exportAs = (kind: "md" | "txt") => {
+  // Exports what is on screen, including unsaved edits.
+  const exportAs = (kind: "md" | "txt" | "json") => {
     const d = { ...draft, content, status };
-    const label = t.statuses[status];
-    if (kind === "md") download(`baha-draft-${draft.id}.md`, draftMarkdown(d, label), "text/markdown");
-    else download(`baha-draft-${draft.id}.txt`, draftPlainText(d, label), "text/plain");
+    const name = `baha-draft-${draft.id}`;
+    if (kind === "md") download(`${name}.md`, draftMarkdown(d), "text/markdown");
+    // A byte-order mark helps older Windows editors open the Arabic text as UTF-8.
+    else if (kind === "txt") download(`${name}.txt`, `\uFEFF${draftPlainText(d)}`, "text/plain");
+    else download(`${name}.json`, draftJson(d), "application/json");
     setToast({ text: t.exported, tone: "ok" });
   };
 
@@ -144,23 +196,49 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now }: { 
     <div className="flex flex-col gap-5 px-4 pb-16 pt-6 md:px-10">
       {/* Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link href="/studio" className="flex items-center gap-1 t-small text-ink-2 hover:text-accent"><Back className="size-4" />{t.back}</Link>
+        <Link href="/library" className="flex items-center gap-1 t-small text-ink-2 hover:text-accent"><Back className="size-4" />{t.back}</Link>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex h-10 items-center gap-2 rounded-md border border-line bg-surface px-3 t-small">
-            <span className="text-muted">{t.status}:</span>
-            <select value={status} onChange={(e) => { setStatus(e.target.value as DraftStatus); setDirty(true); }} className="bg-transparent font-semibold outline-none">
-              {STATUSES.map((s) => <option key={s} value={s}>{t.statuses[s]}</option>)}
-            </select>
-          </label>
           <Button onClick={save} disabled={saving || !dirty} icon={saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}>{saving ? t.saving : t.save}</Button>
           <Button variant="secondary" onClick={() => copy(contentText(c, lang))} icon={<Copy className="size-4" />}>{t.copyAll}</Button>
           <Button variant="secondary" onClick={() => exportAs("md")} icon={<Download className="size-4" />}>{t.exportMd}</Button>
           <Button variant="secondary" onClick={() => exportAs("txt")} icon={<FileText className="size-4" />}>{t.exportTxt}</Button>
+          <Button variant="secondary" onClick={() => exportAs("json")} icon={<Braces className="size-4" />}>{t.exportJson}</Button>
+          <Button variant="ghost" onClick={duplicate} disabled={busy} icon={<CopyPlus className="size-4" />}>{t.duplicate}</Button>
           <Button variant="ghost" onClick={() => regenerate(false)} disabled={busy} icon={busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}>{t.regenerate}</Button>
           <Button variant="ghost" onClick={remove} disabled={busy} className="text-negative" icon={<Trash2 className="size-4" />}>{t.delete}</Button>
         </div>
       </div>
-      <p className={cx("t-caption", dirty ? "text-warning" : "text-muted")} aria-live="polite">{dirty ? t.unsaved : `${t.savedAt} · ${new Intl.DateTimeFormat(locale === "ar" ? "ar-u-nu-latn" : "en-CA", { dateStyle: "medium", timeStyle: "short" }).format(new Date(draft.updatedAt))}`}</p>
+
+      {/* Workflow: one click per stage, saved straight away */}
+      <section aria-label={t.workflow} className="card flex flex-col gap-3 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 t-small font-semibold">{t.workflow}<StatusChip status={status} label={t.statuses[status]} /></h2>
+          <p className="t-caption text-muted">{t.workflowNote}</p>
+        </div>
+        <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          {STATUSES.map((st, i) => {
+            const on = st === status;
+            return (
+              <li key={st}>
+                <button
+                  type="button"
+                  aria-pressed={on}
+                  disabled={busy || saving}
+                  onClick={() => changeStatus(st)}
+                  className={cx("flex h-full w-full flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-start transition-colors disabled:cursor-wait", on ? STEP_ON[STATUS_TONE[st]] : "border-line text-ink-2 hover:border-line-strong hover:bg-hover")}
+                >
+                  <span className="flex items-center gap-1.5 t-small font-semibold">
+                    {on ? <Check className="size-3.5" /> : <span className="ltr t-caption text-muted">{i + 1}</span>}
+                    {t.statuses[st]}
+                  </span>
+                  <span className="t-caption opacity-80">{t.statusHelp[st]}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+      <p className={cx("t-caption", dirty ? "font-semibold text-warning" : "text-muted")} aria-live="polite">{dirty ? t.unsaved : `${t.savedAt} · ${stamp(locale, draft.updatedAt)}`}</p>
       {error && <p role="alert" className="rounded-md bg-negative-tint p-3 t-small text-negative">{error}</p>}
 
       {/* Notices */}
@@ -260,6 +338,25 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now }: { 
 
         {/* Original story, kept visually separate */}
         <aside className="flex flex-col gap-4 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto lg:overscroll-contain lg:pb-1">
+          <div className="card flex flex-col gap-3 p-5">
+            <h2 className="t-h3 font-semibold">{t.details}</h2>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 t-caption">
+              <dt className="text-muted">{t.format}</dt>
+              <dd>{t.formats[draft.format]}{draft.format === "reel" ? ` · ${draft.duration} ${t.seconds_label}` : ""}</dd>
+              <dt className="text-muted">{t.language}</dt>
+              <dd>{t.langs[draft.language]}</dd>
+              <dt className="text-muted">{t.audience}</dt>
+              <dd>{t.audiences[draft.audience]}</dd>
+              <dt className="text-muted">{t.status}</dt>
+              <dd><StatusChip status={status} label={t.statuses[status]} /></dd>
+              <dt className="text-muted">{t.created}</dt>
+              <dd>{stamp(locale, draft.createdAt)}</dd>
+              <dt className="text-muted">{t.updated}</dt>
+              <dd>{stamp(locale, draft.updatedAt)}</dd>
+            </dl>
+            {draft.duplicatedFrom && <Chip className="self-start">{t.copyBadge}</Chip>}
+          </div>
+
           <div className="card flex flex-col gap-3 border-positive/30 bg-positive-tint/40 p-5">
             <div>
               <h2 className="flex items-center gap-1.5 t-h3 font-semibold text-positive"><BadgeCheck className="size-4" />{t.sourcePanel}</h2>
@@ -316,14 +413,27 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now }: { 
             )}
             <Button variant="secondary" onClick={() => regenerate(true)} disabled={busy} icon={<RefreshCw className="size-4" />}>{t.applySettings}</Button>
           </div>
+
+          <div className="card flex flex-col gap-3 p-5">
+            <h2 className="flex items-center gap-1.5 t-h3 font-semibold"><History className="size-4 text-muted" />{t.history}</h2>
+            {!draft.history.length ? (
+              <p className="t-caption text-ink-2">{t.historyEmpty}</p>
+            ) : (
+              <ol className="flex flex-col gap-2">
+                {[...draft.history].reverse().slice(0, 10).map((h, i) => (
+                  <li key={`${h.at}-${i}`} className="flex flex-col border-s-2 border-line ps-3 t-caption">
+                    <span className="flex flex-wrap items-center gap-1.5 font-medium text-ink">{t.historyActions[h.action]}{h.action === "status" && h.status && <StatusChip status={h.status} label={t.statuses[h.status]} />}</span>
+                    <span className="text-muted">{people[h.by] ?? h.by} · {stamp(locale, h.at)}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
         </aside>
       </div>
 
-      {toast && (
-        <div role="status" aria-live="polite" className={cx("fixed bottom-6 start-1/2 z-50 -translate-x-1/2 rounded-lg px-4 py-2.5 t-small font-medium text-white shadow-lg rtl:translate-x-1/2", toast.tone === "ok" ? "bg-ink" : "bg-negative")}>
-          {toast.text}
-        </div>
-      )}
+      {toast.view}
+      {confirmView}
     </div>
   );
 }

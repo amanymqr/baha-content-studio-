@@ -88,15 +88,6 @@ export function SectionHead({ title, sub, aside }: { title: string; sub?: string
   );
 }
 
-export function SampleNote({ badge, note }: { badge: string; note: string }) {
-  return (
-    <div className="flex items-center gap-2 t-caption text-muted">
-      <Chip tone="gold" dot>{badge}</Chip>
-      <span>{note}</span>
-    </div>
-  );
-}
-
 export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
     <button

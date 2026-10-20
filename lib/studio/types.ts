@@ -5,7 +5,8 @@ export type StudioAudience = "arab" | "buyers" | "sellers" | "investors" | "resi
 export type DraftFormat = "reel" | "carousel";
 export type DraftLang = "ar" | "en";
 export type DraftLanguage = DraftLang | "both";
-export type DraftStatus = "draft" | "review" | "ready";
+/** Workflow order. "ready" means ready to export; drafts saved before step 5 used it for "ready to publish". */
+export type DraftStatus = "draft" | "review" | "changes" | "approved" | "ready";
 export type ReelDuration = 30 | 45 | 60;
 
 /** fact = taken from the source; explain = general explanation or framing; cta = call to action. */
@@ -69,6 +70,11 @@ export type DraftOptions = {
   angleId?: string;
 };
 
+export type HistoryAction = "created" | "edited" | "status" | "regenerated" | "duplicated";
+
+/** One line of a draft's change log. Kept short: who, when, what, and the status it moved to. */
+export type HistoryEntry = { at: string; by: string; action: HistoryAction; status?: DraftStatus };
+
 export type Draft = DraftOptions & {
   id: string;
   status: DraftStatus;
@@ -83,10 +89,15 @@ export type Draft = DraftOptions & {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /** Newest last, capped at HISTORY_MAX. Missing on drafts made before step 5. */
+  history: HistoryEntry[];
+  /** Set on a copy made with "duplicate". */
+  duplicatedFrom?: string;
 };
 
 export const AUDIENCES: StudioAudience[] = ["arab", "buyers", "sellers", "investors", "residents"];
 export const DURATIONS: ReelDuration[] = [30, 45, 60];
 export const SLIDE_MIN = 5;
 export const SLIDE_MAX = 10;
-export const STATUSES: DraftStatus[] = ["draft", "review", "ready"];
+export const STATUSES: DraftStatus[] = ["draft", "review", "changes", "approved", "ready"];
+export const HISTORY_MAX = 30;
