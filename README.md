@@ -9,7 +9,8 @@ Design source: [approved Figma design](https://www.figma.com/design/FME8x2ZiMNPc
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # news feed parser and duplicate-detection checks
+npm test           # news, analysis and studio checks
+npm run typecheck  # TypeScript check
 ```
 
 AI is off by default and nothing paid is called. To turn it on later, create `.env.local` with `AI_PROVIDER=claude` and `ANTHROPIC_API_KEY=...`, then restart. Without both, every page still works and AI features show as unavailable.
@@ -23,8 +24,8 @@ Sign in with either account. Version 1 uses one temporary local password, `studi
 | 1. Foundation: RTL shell, Arabic/English interface, login, Settings, Dashboard | Done |
 | 2. News monitor (official sources) | Done |
 | 3. Market analysis + opportunities | Done |
-| 4. Reels + Carousel studios | Next |
-| 5. Library + calendar | Planned |
+| 4. Content creation studio (Reels + Carousels) | Done |
+| 5. Library + calendar | Next |
 
 Figures and headlines on the dashboard are sample content from the design and are labelled as such in the app.
 
@@ -59,6 +60,16 @@ Both pages read the stories already collected by the news monitor. Nothing is fe
 - **Content Opportunities** (`/opportunities`): Reel and carousel angles from fixed rules per news category (`lib/opportunities/angles.ts`), with goal and audiences. Filters: audience (first-time buyers, sellers, homeowners, investors, Arab audiences, English-speaking Canadians), format, and content language (Arabic, English or both, defaulting to the user's setting).
 - **AI layer** (`lib/ai/`): one interface for translation, market impact, Arabic explanations, Reel scripts, carousels, hooks and marketing copy. Only translation is implemented; the rest are declared for later. Pages never call a provider directly.
 
+## Content creation studio (step 4)
+
+`/studio` turns a real collected story into a Reel or carousel draft. `/reels` and `/carousel` open the same studio with the format chosen.
+
+- **Workflow**: pick a story (ranked, with stories selected in the news monitor first) → choose format, Reel length (30, 45 or 60 seconds) or slide count (5 to 10, default 7), audience and content language → generate → edit, review and copy or export. "Write the draft" on Content Opportunities and Market Analysis opens the studio with the story, angle, format and language already set.
+- **Generator** (`lib/studio/generate.ts`): fixed templates and rules, not AI. Arabic and English are written from separate templates, not translated. Figures are only ever quoted from the story's own sentences; when a story has no figures the draft stays general and points to the official link. Every draft keeps the source, publication date and link, and a "not financial or legal advice" line. Arabic drafts made from an untranslated story quote the figures and leave a review note with the original sentence so the reviewer writes what each figure measures.
+- **Editor** (`/studio/[id]`): edit title, hook, script segments (voiceover, on-screen text, shot), slides, caption, CTA and hashtags; template alternatives for title and hook; copy one part or everything (review notes are left out of copies); export `.md` or `.txt`; regenerate; delete with confirmation; statuses draft, in review, ready to publish. There is no publish button. The original story is shown separately, with a warning when it is older than 14 days.
+- **Storage**: drafts are saved in `data/drafts.json` on the machine running the app (not committed). They survive a refresh and restart, but they are not synced between devices and have no version history; back the file up if needed. It will move to the shared database later with the rest of `lib/db.ts`.
+- **AI**: the studio checks `lib/ai/` for the `reelScript` task. Those AI tasks are declared but not implemented, so the studio says every draft is template-generated and needs human review. Adding AI writing later means implementing those tasks there; no page calls a provider directly.
+
 ## Structure
 
 - `lib/i18n.ts`: interface strings, Arabic first, English optional
@@ -66,7 +77,8 @@ Both pages read the stories already collected by the news monitor. Nothing is fe
 - `lib/sample.ts`: dashboard sample content until the dashboard reads from the news store
 - `lib/news/`: feed sources, tagging, filters and duplicate detection, store
 - `lib/analysis/`, `lib/opportunities/`: scoring, audience rules and content angles
+- `lib/studio/`: draft types, template generator, copy/export text, draft store and server actions
 - `lib/ai/`: AI provider interface (off by default)
-- `tests/`: `npm test` runs feed parsing, scoring, classification, filtering and duplicate checks
+- `tests/`: `npm test` runs feed parsing, scoring, classification, filtering, duplicate and studio generator checks
 - `components/ui.tsx`: shared UI, including `Bidi` for numbers inside Arabic text
 - `app/globals.css`: design tokens copied from the Figma variables

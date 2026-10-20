@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Clapperboard, Folder, Layers, LayoutGrid, LogOut, Newspaper, Settings2, Sparkles, Target, TrendingUp } from "lucide-react";
+import { useEffect, useState } from "react";
+import { CalendarDays, Clapperboard, Folder, Layers, LayoutGrid, LogOut, Menu, Newspaper, NotebookPen, Settings2, Sparkles, Target, TrendingUp, X } from "lucide-react";
 import type { Dict } from "@/lib/i18n";
 import { cx } from "./ui";
 import { signOut } from "@/lib/actions";
@@ -13,7 +14,14 @@ export function Sidebar({ t, user, locale }: { t: Pick<Dict, "nav" | "brand">; u
   const path = usePathname();
   const n = t.nav;
   const groups: { title: string; items: Item[] }[] = [
-    { title: n.groupCreate, items: [{ href: "/reels", label: n.reels, icon: Clapperboard }, { href: "/carousel", label: n.carousel, icon: Layers }] },
+    {
+      title: n.groupCreate,
+      items: [
+        { href: "/studio", label: n.studio, icon: NotebookPen },
+        { href: "/reels", label: n.reels, icon: Clapperboard },
+        { href: "/carousel", label: n.carousel, icon: Layers },
+      ],
+    },
     {
       title: n.groupResearch,
       items: [
@@ -26,7 +34,7 @@ export function Sidebar({ t, user, locale }: { t: Pick<Dict, "nav" | "brand">; u
   ];
 
   const NavLink = ({ item }: { item: Item }) => {
-    const active = path === item.href;
+    const active = item.href === "/studio" ? path.startsWith("/studio") : path === item.href;
     const Icon = item.icon;
     return (
       <Link
@@ -42,8 +50,11 @@ export function Sidebar({ t, user, locale }: { t: Pick<Dict, "nav" | "brand">; u
     );
   };
 
-  return (
-    <div className="w-[264px] shrink-0 border-e border-line bg-surface">
+  const [open, setOpen] = useState(false);
+  // Close the mobile drawer after navigating.
+  useEffect(() => setOpen(false), [path]);
+
+  const panel = (
     <aside className="sticky top-0 flex h-screen flex-col gap-6 overflow-y-auto px-5 py-6">
       <div className="flex items-center gap-3 px-1">
         <div className="grid size-10 place-items-center rounded-md bg-gradient-to-br from-[#e2c483] to-[#a07c2e] font-[family-name:var(--font-serif)] text-xl font-semibold text-white shadow-soft">
@@ -55,7 +66,7 @@ export function Sidebar({ t, user, locale }: { t: Pick<Dict, "nav" | "brand">; u
         </div>
       </div>
 
-      <Link href="/reels" className="flex h-[50px] items-center justify-center gap-2 rounded-md bg-accent t-h3 font-medium text-white shadow-glow hover:bg-accent-strong">
+      <Link href="/studio/new" className="flex h-[50px] items-center justify-center gap-2 rounded-md bg-accent t-h3 font-medium text-white shadow-glow hover:bg-accent-strong">
         <Sparkles className="size-[18px]" />
         {n.create}
       </Link>
@@ -100,6 +111,24 @@ export function Sidebar({ t, user, locale }: { t: Pick<Dict, "nav" | "brand">; u
         </div>
       </div>
     </aside>
-    </div>
+  );
+
+  return (
+    <>
+      <div className="hidden w-[264px] shrink-0 border-e border-line bg-surface lg:block">{panel}</div>
+      {/* Below desktop width the sidebar becomes a drawer. */}
+      <button onClick={() => setOpen(true)} aria-label={n.menu} className="fixed bottom-4 end-4 z-40 grid size-12 place-items-center rounded-full bg-accent text-white shadow-glow lg:hidden">
+        <Menu className="size-5" />
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-ink/40" onClick={() => setOpen(false)} />
+          <div className="absolute inset-y-0 start-0 w-[280px] max-w-[85vw] bg-surface shadow-lg">
+            <button onClick={() => setOpen(false)} aria-label={n.close} className="absolute end-3 top-3 z-10 grid size-9 place-items-center rounded-md text-ink-2 hover:bg-hover"><X className="size-5" /></button>
+            {panel}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

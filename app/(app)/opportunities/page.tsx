@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BadgeCheck, Clapperboard, Inbox, Layers, Target, Users, X } from "lucide-react";
+import { BadgeCheck, Clapperboard, Inbox, Layers, PenLine, Target, Users, X } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { HeuristicNote, ScoreBadge } from "@/components/Scores";
 import { Bidi, ButtonLink, Chip, cx } from "@/components/ui";
@@ -108,7 +108,10 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
                     <AngleTitle op={op} lang={lang} className="t-h3 font-semibold" />
                     <p className="t-small text-ink-2">{op.angle.why[locale]}</p>
                     <Meta op={op} />
-                    <ButtonLink href={`/analysis?id=${op.story.item.id}`} variant="secondary" size="sm" className="mt-auto self-start">{o.view}</ButtonLink>
+                    <div className="mt-auto flex flex-wrap gap-2">
+                      <ButtonLink href={studioHref(op)} size="sm" icon={<PenLine className="size-3.5" />}>{o.write}</ButtonLink>
+                      <ButtonLink href={`/analysis?id=${op.story.item.id}`} variant="secondary" size="sm">{o.view}</ButtonLink>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -141,7 +144,10 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
                         <td className="py-4 pe-3"><Chip>{OBJECTIVE_LABEL[op.angle.objective][locale]}</Chip></td>
                         <td className="py-4"><ScoreBadge value={op.story.opportunity.value} /></td>
                         <td className="px-6 py-4 text-end">
-                          <Link href={`/analysis?id=${op.story.item.id}`} className="whitespace-nowrap font-medium text-accent hover:underline">{o.view}</Link>
+                          <div className="flex flex-col items-end gap-1.5">
+                            <Link href={studioHref(op)} className="whitespace-nowrap font-semibold text-accent hover:underline">{o.write}</Link>
+                            <Link href={`/analysis?id=${op.story.item.id}`} className="whitespace-nowrap t-caption text-ink-2 hover:underline">{o.view}</Link>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -166,7 +172,6 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
                   </div>
                 ))}
                 <HeuristicNote title={t.analysis.heuristic} note={o.howNote} />
-                <p className="t-caption text-muted">{o.writeLater}</p>
               </aside>
             </section>
           </>
@@ -174,6 +179,13 @@ export default async function OpportunitiesPage({ searchParams }: { searchParams
       </div>
     </>
   );
+
+  /** Opens the studio with this story, angle, format, audience and content language already chosen. */
+  function studioHref(op: Opportunity) {
+    const p = new URLSearchParams({ story: op.story.item.id, angle: op.angle.id, format: op.angle.format, language: lang });
+    if (audience) p.set("aud", audience);
+    return `/studio/new?${p.toString()}`;
+  }
 
   function FormatChip({ f }: { f: Format }) {
     const Icon = f === "reel" ? Clapperboard : Layers;

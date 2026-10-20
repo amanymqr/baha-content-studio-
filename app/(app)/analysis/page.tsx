@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BookOpen, Bot, ChevronLeft, ChevronRight, ExternalLink, Inbox, Quote, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
+import { BookOpen, Bot, PenLine, ChevronLeft, ChevronRight, ExternalLink, Inbox, Quote, ShieldCheck, Sparkles, TriangleAlert, Users } from "lucide-react";
 import { TopBar } from "@/components/TopBar";
 import { HeuristicNote, ScoreBadge, ScoreReasons } from "@/components/Scores";
 import { Bidi, ButtonLink, Chip, cx } from "@/components/ui";
@@ -129,7 +129,10 @@ export default async function AnalysisPage({ searchParams }: { searchParams: Pro
             {locale === "ar" ? <ChevronLeft className="size-4 shrink-0" /> : <ChevronRight className="size-4 shrink-0" />}
             {translation && locale === "ar" ? <span className="truncate text-ink">{translation.titleAr}</span> : <span className="truncate text-ink content-en" lang="en">{item.title}</span>}
           </nav>
-          <ButtonLink href={`/opportunities?story=${item.id}`} icon={<Sparkles className="size-4" />}>{a.toContent}</ButtonLink>
+          <div className="flex flex-wrap gap-2">
+            <ButtonLink href={`/studio/new?story=${item.id}`} icon={<PenLine className="size-4" />}>{t.opps.write}</ButtonLink>
+            <ButtonLink href={`/opportunities?story=${item.id}`} variant="secondary" icon={<Sparkles className="size-4" />}>{a.toContent}</ButtonLink>
+          </div>
         </div>
 
         <section className="grid grid-cols-[1.7fr_1fr] items-start gap-6">
