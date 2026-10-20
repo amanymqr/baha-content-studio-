@@ -259,7 +259,7 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now }: { 
         </section>
 
         {/* Original story, kept visually separate */}
-        <aside className="flex flex-col gap-4 lg:sticky lg:top-24">
+        <aside className="flex flex-col gap-4 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto lg:overscroll-contain lg:pb-1">
           <div className="card flex flex-col gap-3 border-positive/30 bg-positive-tint/40 p-5">
             <div>
               <h2 className="flex items-center gap-1.5 t-h3 font-semibold text-positive"><BadgeCheck className="size-4" />{t.sourcePanel}</h2>

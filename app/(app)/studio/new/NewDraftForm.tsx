@@ -29,7 +29,7 @@ export function NewDraftForm({ t, storyId, defaults, angle }: { t: T; storyId: s
   const [slides, setSlides] = useState(7);
 
   return (
-    <form action={action} className="card flex flex-col gap-5 p-6 lg:sticky lg:top-24">
+    <form action={action} className="card flex flex-col gap-5 p-6 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto lg:overscroll-contain">
       <input type="hidden" name="story" value={storyId ?? ""} />
       {angle && <input type="hidden" name="angle" value={angle.id} />}
 
@@ -78,11 +78,13 @@ export function NewDraftForm({ t, storyId, defaults, angle }: { t: T; storyId: s
 
       <p className="flex items-start gap-2 rounded-md bg-warning-tint p-3 t-caption text-ink-2"><Info className="mt-0.5 size-4 shrink-0 text-warning" />{t.templateNote}</p>
 
-      {state?.error && <p role="alert" className="t-small text-negative">{t.createErrors[state.error as keyof T["createErrors"]] ?? t.createErrors.invalid}</p>}
-
-      <Button disabled={!storyId || pending} className="h-12" icon={pending ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}>
-        {pending ? t.creating : storyId ? t.create : t.chooseStory}
-      </Button>
+      {/* Stays visible at the bottom of the panel while its settings scroll on shorter screens. */}
+      <div className="sticky bottom-0 -mx-6 -mb-6 flex flex-col gap-3 border-t border-line bg-surface px-6 py-4">
+        {state?.error && <p role="alert" className="t-small text-negative">{t.createErrors[state.error as keyof T["createErrors"]] ?? t.createErrors.invalid}</p>}
+        <Button disabled={!storyId || pending} className="h-12" icon={pending ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}>
+          {pending ? t.creating : storyId ? t.create : t.chooseStory}
+        </Button>
+      </div>
     </form>
   );
 }
