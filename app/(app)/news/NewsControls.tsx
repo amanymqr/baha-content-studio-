@@ -25,7 +25,7 @@ export function NewsFilters({
   sources,
   periods,
 }: {
-  t: { search: string; all: string; location: string; source: string; period: string; sort: string; sortLocal: string; sortNewest: string; selectedOnly: string; hideDuplicates: string; clear: string };
+  t: { search: string; searchButton: string; searchClear: string; all: string; location: string; source: string; period: string; sort: string; sortLocal: string; sortNewest: string; selectedOnly: string; hideDuplicates: string; clear: string };
   topics: Option[];
   locations: Option[];
   sources: Option[];
@@ -64,15 +64,26 @@ export function NewsFilters({
   return (
     <div className={cx("flex flex-col gap-3 transition-opacity", pending && "opacity-60")}>
       <div className="flex flex-wrap items-center gap-2">
+        {/* Searches on Enter or the button; the query goes in the URL like the other filters. */}
         <form
-          className="flex h-10 min-w-[260px] flex-1 items-center gap-2 rounded-md border border-line bg-surface px-3 text-muted"
+          role="search"
+          className="flex h-10 min-w-[260px] flex-1 items-center gap-2 rounded-md border border-line bg-surface ps-3 pe-1 text-muted focus-within:border-accent"
           onSubmit={(e) => {
             e.preventDefault();
             set({ q: q.trim() || null });
           }}
         >
           <Search className="size-4 shrink-0" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.search} className="t-small min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted" />
+          <input type="search" name="q" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t.search} aria-label={t.search} className="t-small min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted" style={{ unicodeBidi: "plaintext" }} />
+          {params.get("q") && (
+            <button type="button" onClick={() => { setQ(""); set({ q: null }); }} aria-label={t.searchClear} title={t.searchClear} className="grid size-8 shrink-0 place-items-center rounded text-muted hover:bg-hover">
+              <X className="size-4" />
+            </button>
+          )}
+          <button type="submit" disabled={pending} className="flex h-8 shrink-0 items-center gap-1.5 rounded bg-accent px-3 t-caption font-medium text-white hover:bg-accent-strong disabled:opacity-60">
+            {pending ? <Loader2 className="size-3.5 animate-spin" /> : <Search className="size-3.5" />}
+            {t.searchButton}
+          </button>
         </form>
         <Select name="loc" label={t.location} options={locations} value={params.get("loc") ?? ""} allLabel={t.all} />
         <Select name="src" label={t.source} options={sources} value={params.get("src") ?? ""} allLabel={t.all} />

@@ -127,12 +127,25 @@ export function LibraryView({ drafts, unreadable, initial, t, s, locale }: { dra
 
       {/* Search and filters */}
       <section aria-label={t.filters} className="card flex flex-col gap-3 p-4">
-        <label className="flex h-11 items-center gap-2 rounded-md border border-line bg-canvas px-3 focus-within:border-accent">
+        {/* Results update while typing; Enter or the button also apply the search and move to the results. */}
+        <form
+          role="search"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const q = new FormData(e.currentTarget).get("q")?.toString().trim();
+            set({ q: q || undefined });
+            document.getElementById("library-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
+          className="flex h-11 items-center gap-2 rounded-md border border-line bg-canvas ps-3 pe-1 focus-within:border-accent"
+        >
           <Search className="size-4 shrink-0 text-muted" />
-          <span className="sr-only">{t.searchLabel}</span>
-          <input type="search" value={f.q ?? ""} onChange={(e) => set({ q: e.target.value || undefined })} placeholder={t.search} className="min-w-0 flex-1 bg-transparent t-small outline-none placeholder:text-muted" style={{ unicodeBidi: "plaintext" }} />
-          {f.q && <button type="button" onClick={() => set({ q: undefined })} aria-label={t.clear} className="grid size-7 place-items-center rounded text-muted hover:bg-hover"><X className="size-4" /></button>}
-        </label>
+          <label className="contents">
+            <span className="sr-only">{t.searchLabel}</span>
+            <input type="search" name="q" value={f.q ?? ""} onChange={(e) => set({ q: e.target.value || undefined })} placeholder={t.search} className="min-w-0 flex-1 bg-transparent t-small outline-none placeholder:text-muted" style={{ unicodeBidi: "plaintext" }} />
+          </label>
+          {f.q && <button type="button" onClick={() => set({ q: undefined })} aria-label={t.clear} className="grid size-8 shrink-0 place-items-center rounded text-muted hover:bg-hover"><X className="size-4" /></button>}
+          <button type="submit" className="flex h-9 shrink-0 items-center gap-1.5 rounded bg-accent px-3 t-caption font-medium text-white hover:bg-accent-strong"><Search className="size-3.5" />{t.searchButton}</button>
+        </form>
         <div className="flex flex-wrap items-end gap-3">
           <Select label={t.format} value={f.format ?? ""} onChange={(v) => set({ format: (v || undefined) as DraftFormat | undefined })} options={[["", t.all], ["reel", s.formats.reel], ["carousel", s.formats.carousel]]} />
           <Select label={t.language} value={f.language ?? ""} onChange={(v) => set({ language: (v || undefined) as DraftLanguage | undefined })} options={[["", t.all], ["ar", s.langs.ar], ["en", s.langs.en], ["both", s.langs.both]]} />
@@ -148,7 +161,7 @@ export function LibraryView({ drafts, unreadable, initial, t, s, locale }: { dra
         </div>
       </section>
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div id="library-results" className="flex scroll-mt-24 flex-wrap items-center justify-between gap-2">
         <p className="t-small text-ink-2" aria-live="polite">{t.results.replace("{n}", String(shown.length)).replace("{total}", String(drafts.length))}</p>
         <p className="t-caption text-muted">{t.storageNote}</p>
       </div>
