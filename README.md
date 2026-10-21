@@ -9,22 +9,67 @@ Design source: [approved Figma design](https://www.figma.com/design/FME8x2ZiMNPc
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # news, analysis, studio, library and session checks
+npm test           # news, analysis, studio, library, session, storage, sources and sign-in checks
 npm run typecheck  # TypeScript check
 npm run build && npm start   # production build, http://localhost:3000
+npm run refresh    # refresh the news sources now (add -- --force to ignore the 30-minute interval)
 ```
-
-Sign-in sessions are signed with `SESSION_SECRET`, at least 32 characters, set in `.env.local` (never committed). Generate a random value and add it once:
-
-```bash
-node -e "console.log('SESSION_SECRET=' + require('crypto').randomBytes(48).toString('base64url'))" >> .env.local
-```
-
-Restart the server after adding it. `npm start` refuses sign-in until it is set. `npm run dev` without it uses a temporary secret, so everyone is signed out on each restart. Keep the value private; changing it signs everyone out.
 
 AI is off by default and nothing paid is called. To turn it on later, create `.env.local` with `AI_PROVIDER=claude` and `ANTHROPIC_API_KEY=...`, then restart. Without both, every page still works and AI features show as unavailable.
 
-Sign in with either account. Version 1 uses one temporary local password, `studio` (override it with `LOCAL_PASSWORD`). Account settings are stored in `data/db.json`, which is created on first run and not committed.
+## Sign-in
+
+A private platform for two accounts only (Amona and Baha). There is no sign-up and no roles; both accounts can do the same things.
+
+Everything below goes in `.env.local` (never committed) or, when hosted, in the host's environment settings:
+
+- `SESSION_SECRET`: signs the sign-in cookie, at least 32 characters. Generate one with
+  `node -e "console.log('SESSION_SECRET=' + require('crypto').randomBytes(48).toString('base64url'))" >> .env.local`.
+  Changing it signs everyone out.
+- `AUTH_HASH_AMONA`, `AUTH_HASH_BAHA`: one password per account, stored only as a scrypt hash. Create each with `npm run set-password -- amona` and `npm run set-password -- baha`; the password is typed without being shown and only the hash line is printed, to paste into `.env.local` by hand. Restart after changing them.
+
+**Production (`npm start`) refuses to start** unless `SESSION_SECRET` and both hashes are set and valid; it lists the missing names (never values) and exits. There is no default password in production. `npm run build` does not need them.
+
+**Development (`npm run dev`)**: an account with a hash must use its own password. An account without a hash can still use `LOCAL_PASSWORD` (or the old local default `studio`), a temporary and insecure shortcut so nobody is locked out while the hashes are being set up: the sign-in page shows a warning and the server prints one on every such sign-in. It is refused in production, and it is never a fallback for an account that has a hash (valid or not) or for a failed sign-in. Without `SESSION_SECRET`, development uses a temporary secret and signs everyone out on restart.
+
+**Failed attempts**: 5 wrong passwords for one account within 15 minutes lock that account for 15 minutes, even with the right password. The count is kept on the server in `data/auth-state.json` (times only, no passwords or IP addresses), so a lock survives a restart. If that file is damaged, sign-in stays closed rather than allowing unlimited attempts; deleting `data/auth-state.json` resets all locks. Anyone who can reach the sign-in page and knows an account name can trigger the 15-minute lock; that is accepted for a private two-person app.
+
+Account settings are stored in `data/db.json`, created on first run.
+
+## Data, backups and restore
+
+All data lives in `data/` as JSON files, ignored by Git along with every `.env` file:
+
+| File | Holds |
+| --- | --- |
+| `db.json` | the two accounts and their settings |
+| `news.json` | stories, source status, Arabic translations, each user's selected stories |
+| `drafts.json` | archived content studio drafts |
+| `source-runs.json` | the last 50 refresh runs per source |
+| `auth-state.json` | failed sign-in attempts |
+| `backups/` | automatic daily copies |
+
+Every write goes through `lib/storage/json-file.ts`: it applies the change to the newest copy of the file under a lock shared by the app and `npm run refresh`, writes to a temporary file and renames it, and never writes over a file it cannot parse (it stops with an error instead). Before the first change of each day, the file is copied to `data/backups/<name>-<date>.json`; the newest 14 per file are kept. A news refresh fetches first and then merges only stories and source status into the newest file, so a selection or translation saved meanwhile is kept.
+
+Restore (stop the app first):
+
+```bash
+npm run restore-backup -- data/backups/news-2026-10-21.json          # check only
+npm run restore-backup -- data/backups/news-2026-10-21.json --yes    # restore
+npm run restore-backup -- "C:\path\to\backups\data-2026-10-21_114821" --yes   # a backup folder with MANIFEST.txt
+```
+
+Each file must be valid JSON and, for a backup folder with `MANIFEST.txt`, match its SHA-256. The files being replaced are copied to `data/backups/pre-restore-<time>/` first.
+
+Backups inside `data/` live on the same disk as the data. Keep regular copies elsewhere too.
+
+## Storage and hosting
+
+The JSON files need a disk that survives restarts and new deployments. Locally that is the project folder. When hosting later:
+
+- On an always-on server (a VPS or a machine at home), keep `data/` on a persistent disk or volume, back it up off the machine, and schedule `npm run refresh` with cron or Task Scheduler.
+- On Vercel, other serverless platforms or containers without a mounted volume, local files are lost on every deployment or restart (and are often read-only). There, `data/` must not be used; the repositories in `lib/storage/repositories.ts` would be replaced by an external database (Postgres, Supabase or a hosted SQLite such as Turso) and refresh scheduled by the platform's cron. That choice is left until hosting is decided.
+- In either case, `SESSION_SECRET` and the password hashes go in the host's environment settings, not in files in the repository.
 
 ## What is built
 

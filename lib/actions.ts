@@ -1,22 +1,36 @@
 "use server";
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { checkPassword } from "./auth/password";
+import { lockedUntil, recordFailure, recordSuccess } from "./auth/lockout";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getUser, updateSettings, type ContentLanguage, type Locale, type User, type UserSettings } from "./db";
 import { SESSION_COOKIE, requireUser } from "./session";
 import { SESSION_MAX_AGE_S, sessionSecret, signSession } from "./session-token";
 
-// Version 1 uses one shared local password. Real accounts move to Supabase Auth later.
-const LOCAL_PASSWORD = process.env.LOCAL_PASSWORD ?? "studio";
-
+// Two private accounts, each with its own password hash (lib/auth/password.ts),
+// and a server-side limit on failed attempts (lib/auth/lockout.ts).
 export async function signIn(_: unknown, form: FormData) {
   const id = String(form.get("user"));
+  const password = String(form.get("password") ?? "");
   const user = await getUser(id);
-  if (!user || form.get("password") !== LOCAL_PASSWORD) return { error: "credentials" as const };
+  if (!user) return { error: "credentials" as const };
   const secret = sessionSecret();
   if (!secret) return { error: "config" as const };
-  (await cookies()).set(SESSION_COOKIE, signSession(user.id, secret), { httpOnly: true, sameSite: "lax", path: "/", maxAge: SESSION_MAX_AGE_S });
+  try {
+    if (await lockedUntil(user.id)) return { error: "locked" as const };
+    const result = await checkPassword(user.id, password);
+    if (result === "config") return { error: "config" as const };
+    if (result === "bad") return { error: (await recordFailure(user.id)) ? ("locked" as const) : ("credentials" as const) };
+    await recordSuccess(user.id);
+  } catch (e) {
+    // The attempt counter couldn't be read or saved: stay closed rather than allow unlimited tries.
+    console.error("Sign-in unavailable:", (e as Error).message);
+    return { error: "unavailable" as const };
+  }
+  const secure = (await headers()).get("x-forwarded-proto") === "https";
+  (await cookies()).set(SESSION_COOKIE, signSession(user.id, secret), { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: SESSION_MAX_AGE_S });
   redirect("/");
 }
 

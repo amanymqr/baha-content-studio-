@@ -3,9 +3,12 @@ node_modules
 out
 next-env.d.ts
 *.tsbuildinfo
-.env*.local
-data/db.json
 .DS_Store
-data/news.json
-data/*.tmp
-data/drafts.json
+
+# Secrets: environment files hold SESSION_SECRET and the password hashes.
+.env
+.env*.local
+.env.production
+
+# Private data, backups, locks and auth state. Never committed.
+data/
