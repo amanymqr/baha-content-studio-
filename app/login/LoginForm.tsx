@@ -29,7 +29,7 @@ export function LoginForm({ t, users }: { t: Dict["login"]; users: U[] }) {
         <span className="t-small text-ink-2">{t.password}</span>
         <input name="password" type="password" required className="h-11 rounded-md border border-line-strong bg-surface px-3 outline-none focus:border-accent" />
       </label>
-      {state?.error && <p className="t-small text-negative">{t.error}</p>}
+      {state?.error && <p role="alert" className="t-small text-negative">{state.error === "config" ? t.configError : t.error}</p>}
       <Button disabled={pending} className="h-11">{t.submit}</Button>
     </form>
   );

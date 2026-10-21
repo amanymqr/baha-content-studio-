@@ -9,9 +9,18 @@ Design source: [approved Figma design](https://www.figma.com/design/FME8x2ZiMNPc
 ```bash
 npm install
 npm run dev        # http://localhost:3000
-npm test           # news, analysis, studio and library checks
+npm test           # news, analysis, studio, library and session checks
 npm run typecheck  # TypeScript check
+npm run build && npm start   # production build, http://localhost:3000
 ```
+
+Sign-in sessions are signed with `SESSION_SECRET`, at least 32 characters, set in `.env.local` (never committed). Generate a random value and add it once:
+
+```bash
+node -e "console.log('SESSION_SECRET=' + require('crypto').randomBytes(48).toString('base64url'))" >> .env.local
+```
+
+Restart the server after adding it. `npm start` refuses sign-in until it is set. `npm run dev` without it uses a temporary secret, so everyone is signed out on each restart. Keep the value private; changing it signs everyone out.
 
 AI is off by default and nothing paid is called. To turn it on later, create `.env.local` with `AI_PROVIDER=claude` and `ANTHROPIC_API_KEY=...`, then restart. Without both, every page still works and AI features show as unavailable.
 

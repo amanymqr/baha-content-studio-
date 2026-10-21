@@ -10,6 +10,7 @@ import { readNews } from "../news/store";
 import { generateAll, snapshotOf } from "./generate";
 import { withHistory } from "./normalize";
 import { getDraft, patchDraft, putDraft, removeDraft } from "./store";
+import { applySave } from "./workflow";
 import { AUDIENCES, DURATIONS, SLIDE_MAX, SLIDE_MIN, STATUSES, type Draft, type DraftOptions, type DraftStatus } from "./types";
 
 const Options = z.object({
@@ -77,7 +78,7 @@ export async function createDraft(_prev: unknown, form: FormData): Promise<{ err
   redirect(`/studio/${draft.id}`);
 }
 
-/** Saves edited content. A status sent along is applied too, but only when the user picked it. */
+/** Saves edited content. A status sent along is applied too, but only when the user picked it. Changed text on an approved draft sends it back to review (see applySave). */
 export async function saveDraft(id: string, data: unknown): Promise<{ ok: true; updatedAt: string; draft: Draft } | { error: string }> {
   const user = await requireUser();
   const parsed = Save.safeParse(data);
@@ -85,11 +86,7 @@ export async function saveDraft(id: string, data: unknown): Promise<{ ok: true; 
   const { status, content } = parsed.data;
   if (!content.ar && !content.en) return { error: "invalid" };
   const at = new Date().toISOString();
-  const saved = await patchDraft(id, (d) => {
-    let history = withHistory(d, { at, by: user.id, action: "edited" });
-    if (status && status !== d.status) history = withHistory({ ...d, history }, { at, by: user.id, action: "status", status });
-    return { ...d, status: status ?? d.status, content, history, updatedAt: at };
-  });
+  const saved = await patchDraft(id, (d) => applySave(d, { status, content }, user.id, at));
   if (!saved) return { error: "not_found" };
   refresh();
   return { ok: true, updatedAt: saved.updatedAt, draft: saved };

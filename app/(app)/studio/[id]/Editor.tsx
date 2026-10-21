@@ -12,6 +12,8 @@ import type { Dict } from "@/lib/i18n";
 import type { Locale } from "@/lib/db";
 import { deleteDraft, duplicateDraft, regenerateDraft, saveDraft, setDraftStatus } from "@/lib/studio/actions";
 import { alternatives, formatStoryDate, storyAgeDays } from "@/lib/studio/generate";
+import { duplicateWithGuard } from "@/lib/studio/guard";
+import { APPROVED_STATUSES } from "@/lib/studio/workflow";
 import { carouselText, contentText, draftJson, draftMarkdown, draftPlainText, segmentText, slideText } from "@/lib/studio/text";
 import { AUDIENCES, DURATIONS, SLIDE_MAX, SLIDE_MIN, STATUSES, type Draft, type DraftContent, type DraftLang, type DraftStatus, type Kind, type ReelSegment, type Slide } from "@/lib/studio/types";
 
@@ -73,6 +75,7 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now, peop
   const [error, setError] = useState<string | null>(null);
   const [saving, startSave] = useTransition();
   const [busy, startBusy] = useTransition();
+  const [copying, setCopying] = useState(false);
   const [settings, setSettings] = useState({ audience: initial.audience, language: initial.language, duration: initial.duration, slideCount: initial.slideCount });
 
   const c = content[lang] ?? content[langs[0]]!;
@@ -108,20 +111,26 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now, peop
 
   const copy = async (text: string) => setToast((await copyText(text)) ? { text: t.copied, tone: "ok" } : { text: t.saveErrors.failed, tone: "error" });
 
-  const save = () =>
-    startSave(async () => {
-      setError(null);
-      const res = await saveDraft(draft.id, { content });
-      if ("error" in res) {
-        setError(t.saveErrors[res.error as keyof T["saveErrors"]] ?? t.saveErrors.failed);
-        setToast({ text: t.saveErrors.failed, tone: "error" });
-        return;
-      }
-      setDraft(res.draft);
-      setDirty(false);
-      setToast({ text: t.saved, tone: "ok" });
-      router.refresh();
-    });
+  /** Saves the edits on screen. Resolves true when they were stored. */
+  const persist = async () => {
+    setError(null);
+    const res = await saveDraft(draft.id, { content });
+    if ("error" in res) {
+      setError(t.saveErrors[res.error as keyof T["saveErrors"]] ?? t.saveErrors.failed);
+      setToast({ text: t.saveErrors.failed, tone: "error" });
+      return false;
+    }
+    // Changed text on an approved draft comes back "in review"; show that instead of a plain "saved".
+    const reopened = res.draft.status !== status;
+    setDraft(res.draft);
+    setStatus(res.draft.status);
+    setDirty(false);
+    setToast({ text: reopened ? t.backToReview.replace("{status}", t.statuses[res.draft.status]) : t.saved, tone: "ok" });
+    router.refresh();
+    return true;
+  };
+
+  const save = () => startSave(async () => void (await persist()));
 
   /** Status changes are saved at once. With unsaved edits, they are saved together after asking. */
   const changeStatus = async (next: DraftStatus) => {
@@ -141,13 +150,35 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now, peop
     });
   };
 
-  const duplicate = () =>
-    startBusy(async () => {
-      const res = await duplicateDraft(draft.id);
-      if ("error" in res) return setToast({ text: t.saveErrors[res.error as keyof T["saveErrors"]] ?? t.saveErrors.failed, tone: "error" });
-      setToast({ text: t.duplicated, tone: "ok" });
-      router.push(`/studio/${res.id}`);
-    });
+  // The copy is made from the saved draft, so unsaved edits are saved first, only after asking.
+  // Not run in a transition: React holds back state updates made inside an async transition
+  // until it ends, so the confirm dialog would never appear while the action waits for it.
+  const duplicate = async () => {
+    if (busy || saving || copying) return;
+    setCopying(true);
+    try {
+      await duplicateWithGuard({
+        dirty,
+        ask: () => confirm({ title: t.dirtyDuplicateTitle, body: t.dirtyDuplicateBody, confirm: t.saveAndDuplicate, cancel: t.cancel }),
+        save: persist,
+        duplicate: async () => {
+          const res = await duplicateDraft(draft.id);
+          if ("error" in res) {
+            setToast({ text: t.saveErrors[res.error as keyof T["saveErrors"]] ?? t.saveErrors.failed, tone: "error" });
+            return false;
+          }
+          setToast({ text: t.duplicated, tone: "ok" });
+          router.push(`/studio/${res.id}`);
+          return true;
+        },
+      });
+    } catch {
+      // A rejected server call (network, session) must not leave the button loading or drop the edits.
+      setToast({ text: t.saveErrors.failed, tone: "error" });
+    } finally {
+      setCopying(false);
+    }
+  };
 
   const regenerate = async (withSettings: boolean) => {
     if (!(await confirm({ title: t.regenerateTitle, body: t.regenerateConfirm, confirm: t.regenerate, cancel: t.cancel, danger: true }))) return;
@@ -198,12 +229,12 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now, peop
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Link href="/library" className="flex items-center gap-1 t-small text-ink-2 hover:text-accent"><Back className="size-4" />{t.back}</Link>
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={save} disabled={saving || !dirty} icon={saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}>{saving ? t.saving : t.save}</Button>
+          <Button onClick={save} disabled={saving || copying || !dirty} icon={saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}>{saving ? t.saving : t.save}</Button>
           <Button variant="secondary" onClick={() => copy(contentText(c, lang))} icon={<Copy className="size-4" />}>{t.copyAll}</Button>
           <Button variant="secondary" onClick={() => exportAs("md")} icon={<Download className="size-4" />}>{t.exportMd}</Button>
           <Button variant="secondary" onClick={() => exportAs("txt")} icon={<FileText className="size-4" />}>{t.exportTxt}</Button>
           <Button variant="secondary" onClick={() => exportAs("json")} icon={<Braces className="size-4" />}>{t.exportJson}</Button>
-          <Button variant="ghost" onClick={duplicate} disabled={busy} icon={<CopyPlus className="size-4" />}>{t.duplicate}</Button>
+          <Button variant="ghost" onClick={duplicate} disabled={busy || copying} icon={copying ? <Loader2 className="size-4 animate-spin" /> : <CopyPlus className="size-4" />}>{t.duplicate}</Button>
           <Button variant="ghost" onClick={() => regenerate(false)} disabled={busy} icon={busy ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}>{t.regenerate}</Button>
           <Button variant="ghost" onClick={remove} disabled={busy} className="text-negative" icon={<Trash2 className="size-4" />}>{t.delete}</Button>
         </div>
@@ -238,7 +269,7 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now, peop
           })}
         </ol>
       </section>
-      <p className={cx("t-caption", dirty ? "font-semibold text-warning" : "text-muted")} aria-live="polite">{dirty ? t.unsaved : `${t.savedAt} · ${stamp(locale, draft.updatedAt)}`}</p>
+      <p className={cx("t-caption", dirty ? "font-semibold text-warning" : "text-muted")} aria-live="polite">{dirty ? (APPROVED_STATUSES.includes(status) ? `${t.unsaved} · ${t.unsavedApproved}` : t.unsaved) : `${t.savedAt} · ${stamp(locale, draft.updatedAt)}`}</p>
       {error && <p role="alert" className="rounded-md bg-negative-tint p-3 t-small text-negative">{error}</p>}
 
       {/* Notices */}

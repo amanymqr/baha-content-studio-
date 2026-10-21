@@ -8,6 +8,8 @@ import { generateAll, snapshotOf } from "../lib/studio/generate";
 import { draftStats, filterDrafts, fold, summarize, torontoDate } from "../lib/studio/library";
 import { normalizeDraft, withHistory } from "../lib/studio/normalize";
 import { draftJson, draftMarkdown, draftPlainText } from "../lib/studio/text";
+import { duplicateWithGuard } from "../lib/studio/guard";
+import { APPROVED_STATUSES, applySave, contentChanged } from "../lib/studio/workflow";
 import { HISTORY_MAX, type Draft, type DraftOptions } from "../lib/studio/types";
 
 let fail = 0;
@@ -97,7 +99,87 @@ check("JSON export says it is a template draft", json.generatedBy === "template"
 const enOnly = draftMarkdown({ ...list[1] });
 check("English-only export labels in English", enOnly.includes("- Format: Carousel") && enOnly.includes("- Review status: In review") && !enOnly.includes("## العربية"));
 
-// 5. Store: old files open, unreadable records are kept, broken files are never overwritten
+// 5. Approval follows the text: changed text on an approved draft goes back to review
+const at = "2026-10-21T10:00:00.000Z";
+const edited = (x: Draft) => { const c = structuredClone(x.content); c.ar!.caption += " (معدّل)"; return c; };
+const approvedDraft = draft("ap", { status: "approved" });
+const a1 = applySave(approvedDraft, { content: edited(approvedDraft) }, "amona", at);
+check("editing approved text sends it back to review", a1.status === "review" && a1.content.ar!.caption.endsWith("(معدّل)"));
+check("the change is logged as an edit and a status change", JSON.stringify(a1.history.slice(-2).map((h) => [h.action, h.status ?? null])) === JSON.stringify([["edited", null], ["status", "review"]]) && a1.updatedAt === at);
+const readyDraft = draft("rd", { status: "ready" });
+check("editing 'ready to export' text also sends it back to review", applySave(readyDraft, { content: edited(readyDraft) }, "amona", at).status === "review");
+const reorder = (v: unknown): unknown => (Array.isArray(v) ? v.map(reorder) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).reverse().map(([k, x]) => [k, reorder(x)])) : v);
+const sameText = applySave(approvedDraft, { content: reorder(approvedDraft.content) as Draft["content"] }, "amona", at);
+check("saving approved text unchanged keeps the approval", sameText.status === "approved" && !sameText.history.some((h) => h.action === "status"));
+check("a changed segment or slide counts as a text change", applySave(approvedDraft, { content: { ...approvedDraft.content, en: { ...approvedDraft.content.en!, segments: approvedDraft.content.en!.segments!.map((s, i) => (i ? s : { ...s, onScreen: s.onScreen + "!" })) } } }, "amona", at).status === "review");
+check("dropping a language counts as a text change", applySave(approvedDraft, { content: { ar: approvedDraft.content.ar } }, "amona", at).status === "review");
+for (const s of ["draft", "review", "changes"] as const) {
+  const x = draft(`n-${s}`, { status: s });
+  const r = applySave(x, { content: edited(x) }, "amona", at);
+  check(`editing a '${s}' draft keeps its status`, r.status === s && !r.history.some((h) => h.action === "status"));
+}
+const chosen = applySave(draft("ch", { status: "review" }), { status: "approved", content: edited(draft("ch")) }, "baha", at);
+check("a status picked with the save is applied as chosen", chosen.status === "approved" && chosen.history.at(-1)?.status === "approved" && chosen.history.at(-1)?.by === "baha");
+check("contentChanged ignores key order and missing optional notes", !contentChanged(approvedDraft.content, structuredClone(approvedDraft.content)) && !contentChanged({ ar: { ...approvedDraft.content.ar!, segments: approvedDraft.content.ar!.segments!.map((s) => ({ ...s, note: undefined })) } }, { ar: { ...approvedDraft.content.ar!, segments: approvedDraft.content.ar!.segments!.map(({ note, ...s }) => s) } }));
+// Every combination: after a plain save, an approved status only remains when the text is the one that was approved
+const combos = (["draft", "review", "changes", "approved", "ready"] as const).flatMap((s) => [false, true].map((change) => {
+  const x = draft(`c-${s}`, { status: s });
+  const r = applySave(x, { content: change ? edited(x) : structuredClone(x.content) }, "amona", at);
+  return !APPROVED_STATUSES.includes(r.status) || (APPROVED_STATUSES.includes(s) && !contentChanged(x.content, r.content));
+}));
+check("approval always matches the current text after a save", combos.every(Boolean));
+
+// 6. Duplicate never drops unsaved edits: it asks, then saves before copying, or does nothing
+async function duplicateChecks() {
+  /** A saved draft, the text on screen, and the copies made, with every step recorded. */
+  const setup = (dirty: boolean, answer: boolean, saveOk = true) => {
+    const saved = draft("orig", { status: "approved" });
+    const original = structuredClone(saved.content);
+    const screen = dirty ? edited(saved) : structuredClone(saved.content);
+    const s = { stored: saved, screen, copies: [] as Draft[], steps: [] as string[] };
+    const run = () => duplicateWithGuard({
+      dirty,
+      ask: async () => (s.steps.push("ask"), answer),
+      save: async () => {
+        s.steps.push("save");
+        if (!saveOk) return false;
+        s.stored = applySave(s.stored, { content: structuredClone(s.screen) }, "amona", at);
+        return true;
+      },
+      duplicate: async () => (s.steps.push("duplicate"), s.copies.push({ ...structuredClone(s.stored), id: "copy", status: "draft" }), true),
+    });
+    return { s, original, run };
+  };
+
+  const clean = setup(false, true);
+  const r1 = await clean.run();
+  check("duplicate without unsaved edits copies at once, no question", r1 === "duplicated" && clean.s.steps.join() === "duplicate");
+  check("the copy has the saved text and the original is unchanged", JSON.stringify(clean.s.copies[0].content) === JSON.stringify(clean.original) && JSON.stringify(clean.s.stored.content) === JSON.stringify(clean.original) && clean.s.stored.status === "approved");
+
+  const cancel = setup(true, false);
+  const screenBefore = JSON.stringify(cancel.s.screen);
+  const r2 = await cancel.run();
+  check("duplicate with unsaved edits asks first", cancel.s.steps[0] === "ask");
+  check("cancelling saves nothing and copies nothing", r2 === "cancelled" && cancel.s.steps.join() === "ask" && cancel.s.copies.length === 0);
+  check("after cancelling, the saved text and the edits on screen are both intact", JSON.stringify(cancel.s.stored.content) === JSON.stringify(cancel.original) && JSON.stringify(cancel.s.screen) === screenBefore && cancel.s.stored.status === "approved");
+
+  const ok = setup(true, true);
+  const r3 = await ok.run();
+  check("confirming saves the edits, then duplicates", r3 === "duplicated" && ok.s.steps.join() === "ask,save,duplicate");
+  check("the edits are kept in the draft and in the copy", JSON.stringify(ok.s.stored.content) === JSON.stringify(ok.s.screen) && JSON.stringify(ok.s.copies[0].content) === JSON.stringify(ok.s.screen) && ok.s.copies[0].content.ar!.caption.endsWith("(معدّل)"));
+  check("saving edited approved text before copying still sends it back to review", ok.s.stored.status === "review");
+
+  const failed = setup(true, true, false);
+  const failedScreen = JSON.stringify(failed.s.screen);
+  const r4 = await failed.run();
+  check("if saving fails, no copy is made and the edits stay on screen", r4 === "save_failed" && failed.s.copies.length === 0 && failed.s.steps.join() === "ask,save" && JSON.stringify(failed.s.screen) === failedScreen);
+  let copied = false;
+  const thrown = await duplicateWithGuard({ dirty: true, ask: async () => true, save: async () => { throw new Error("network"); }, duplicate: async () => (copied = true) }).then(() => "resolved", (e: Error) => e.message);
+  check("a save that throws reaches the caller (so the editor can stop loading) and no copy is made", thrown === "network" && !copied);
+  check("a failed copy is reported", (await duplicateWithGuard({ dirty: false, ask: async () => true, save: async () => true, duplicate: async () => false })) === "duplicate_failed");
+}
+
+// 7. Store: old files open, unreadable records are kept, broken files are never overwritten
 async function storeChecks() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "baha-store-"));
   const cwd = process.cwd();
@@ -113,6 +195,9 @@ async function storeChecks() {
     const after = JSON.parse(await fs.readFile(file, "utf8"));
     check("status change persists to the file", patched?.status === "approved" && after.drafts.old1.status === "approved" && after.drafts.old1.history.length === 1);
     check("unreadable record is left in the file", !!after.drafts.broken);
+    await store.patchDraft("old1", (x) => applySave(x, { content: edited(x) }, "amona", new Date().toISOString()));
+    const reopened = JSON.parse(await fs.readFile(file, "utf8")).drafts.old1;
+    check("edited approved text is stored back in review", reopened.status === "review" && reopened.content.ar.caption.endsWith("(معدّل)") && !!after.drafts.broken);
     await fs.writeFile(file, "{ not json");
     let threw = false;
     try { await store.putDraft(draft("new")); } catch { threw = true; }
@@ -125,7 +210,7 @@ async function storeChecks() {
   }
 }
 
-storeChecks().then(() => {
+duplicateChecks().then(storeChecks).then(() => {
   console.log(fail ? `${fail} FAILED` : "ALL PASSED");
   process.exit(fail ? 1 : 0);
 });
