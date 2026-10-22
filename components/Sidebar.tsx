@@ -10,14 +10,15 @@ import { signOut } from "@/lib/actions";
 
 type Item = { href: string; label: string; icon: typeof LayoutGrid; count?: number };
 
-export function Sidebar({ t, user, locale }: { t: Pick<Dict, "nav" | "brand">; user: { name: string; role: string; initials: string }; locale: "ar" | "en" }) {
+/** pipeline: real draft counts from the drafts store, or null when the file can't be read. */
+export function Sidebar({ t, user, locale, pipeline }: { t: Pick<Dict, "nav" | "brand">; user: { name: string; role: string; initials: string }; locale: "ar" | "en"; pipeline: { ready: number; total: number } | null }) {
   const path = usePathname();
   const n = t.nav;
   const groups: { title: string; items: Item[] }[] = [
     {
       title: n.groupCreate,
       items: [
-        { href: "/studio", label: n.studio, icon: NotebookPen },
+        { href: "/studio/new", label: n.studio, icon: NotebookPen },
         { href: "/reels", label: n.reels, icon: Clapperboard },
         { href: "/carousel", label: n.carousel, icon: Layers },
       ],
@@ -34,7 +35,7 @@ export function Sidebar({ t, user, locale }: { t: Pick<Dict, "nav" | "brand">; u
   ];
 
   const NavLink = ({ item }: { item: Item }) => {
-    const active = item.href === "/studio" ? path.startsWith("/studio") : path === item.href;
+    const active = item.href === "/studio/new" ? path.startsWith("/studio") : path === item.href;
     const Icon = item.icon;
     return (
       <Link
@@ -84,16 +85,18 @@ export function Sidebar({ t, user, locale }: { t: Pick<Dict, "nav" | "brand">; u
       </nav>
 
       <div className="mt-auto flex flex-col gap-4">
-        <div className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4">
-          <div className="flex items-center justify-between">
-            <span className="t-small font-semibold text-ink">{n.weeklyPlan}</span>
-            <span className="t-small font-semibold text-accent ltr">3/5</span>
-          </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-line">
-            <div className="h-full w-3/5 rounded-full bg-accent" />
-          </div>
-          <div className="t-caption text-ink-2">{n.weeklyPlanDetail}</div>
-        </div>
+        {pipeline && (
+          <Link href="/library?status=ready" className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-4 hover:border-accent-soft">
+            <div className="flex items-center justify-between">
+              <span className="t-small font-semibold text-ink">{n.pipelineBox}</span>
+              <span className="t-small font-semibold text-accent ltr">{pipeline.ready}/{pipeline.total}</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-line">
+              <div className="h-full rounded-full bg-accent" style={{ width: `${pipeline.total ? (pipeline.ready / pipeline.total) * 100 : 0}%` }} />
+            </div>
+            <div className="t-caption text-ink-2">{pipeline.total ? n.pipelineDetail.replace("{ready}", String(pipeline.ready)).replace("{total}", String(pipeline.total)) : n.pipelineEmpty}</div>
+          </Link>
+        )}
         <div className="flex items-center gap-3 px-1">
           <div className="grid size-9 place-items-center rounded-full border border-accent-soft bg-accent-tint t-caption font-semibold text-accent">{user.initials}</div>
           <div className="min-w-0 flex-1">

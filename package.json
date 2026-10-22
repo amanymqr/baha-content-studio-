@@ -7,8 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "tsc --noEmit",
-    "test": "tsx --conditions=react-server tests/news-parsers.test.ts && tsx --conditions=react-server tests/analysis.test.ts && tsx --conditions=react-server tests/studio.test.ts",
-    "typecheck": "tsc --noEmit"
+    "test": "tsx --conditions=react-server tests/news-parsers.test.ts && tsx --conditions=react-server tests/analysis.test.ts && tsx --conditions=react-server tests/studio.test.ts && tsx --conditions=react-server tests/library.test.ts && tsx --conditions=react-server tests/session.test.ts && tsx --conditions=react-server tests/storage.test.ts && tsx --conditions=react-server tests/sources.test.ts && tsx --conditions=react-server tests/auth.test.ts",
+    "typecheck": "tsc --noEmit",
+    "refresh": "tsx --conditions=react-server scripts/refresh.ts",
+    "set-password": "tsx --conditions=react-server scripts/set-password.ts",
+    "restore-backup": "tsx --conditions=react-server scripts/restore-backup.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",

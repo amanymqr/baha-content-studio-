@@ -10,15 +10,14 @@ export function TopBar({ t, locale, title, subtitle }: { t: Dict; locale: Locale
         <h1 className="t-h2 truncate">{title}</h1>
         {subtitle && <p className="t-small truncate text-ink-2">{subtitle}</p>}
       </div>
-      <label className="hidden h-10 w-[300px] items-center gap-2 xl:flex rounded-md border border-line bg-surface px-3 text-muted">
+      {/* Searches the content library. */}
+      <form action="/library" role="search" className="hidden h-10 w-[300px] items-center gap-2 xl:flex rounded-md border border-line bg-surface px-3 text-muted focus-within:border-accent">
         <Search className="size-4 shrink-0" />
-        <input placeholder={t.topbar.search} className="t-small min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted" />
-        <kbd className="rounded bg-elevated px-1.5 t-caption text-muted ltr">⌘K</kbd>
-      </label>
+        <input name="q" type="search" aria-label={t.topbar.search} placeholder={t.topbar.search} className="t-small min-w-0 flex-1 bg-transparent text-ink outline-none placeholder:text-muted" />
+      </form>
       <LanguageToggle locale={locale} labels={t.langToggle} />
       <button aria-label={t.topbar.notifications} className="relative hidden size-10 sm:grid place-items-center rounded-md border border-line bg-surface text-ink hover:bg-hover">
         <Bell className="size-[18px]" />
-        <span className="absolute end-2 top-2 size-2 rounded-full border-2 border-surface bg-accent" />
       </button>
     </header>
   );

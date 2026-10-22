@@ -1,9 +1,9 @@
 import "server-only";
 import { promises as fs } from "fs";
-import path from "path";
+import { dataFile, readJson, updateJson } from "./storage/json-file";
 
-// Local JSON store for version 1. It is replaced by Supabase in a later step;
-// everything else talks to it only through the functions below.
+// Account settings in data/db.json, read and written through the safe JSON layer
+// (lib/storage). Everything else talks to it only through the functions below.
 
 export type Locale = "ar" | "en";
 export type ContentLanguage = "ar" | "en" | "both";
@@ -24,8 +24,6 @@ export type User = {
 };
 
 type Db = { users: User[] };
-
-const DB_PATH = path.join(process.cwd(), "data", "db.json");
 
 const defaultSettings = (interfaceLanguage: Locale): UserSettings => ({
   interfaceLanguage,
@@ -53,18 +51,19 @@ const seed: Db = {
   ],
 };
 
+// The file is created from the seed on first run. If it exists but can't be
+// parsed, reading throws and nothing is written, so saved settings are never
+// replaced by the defaults.
+const file = () => dataFile("db.json");
+
 async function read(): Promise<Db> {
   try {
-    return JSON.parse(await fs.readFile(DB_PATH, "utf8")) as Db;
+    await fs.access(file());
   } catch {
-    await write(seed);
-    return structuredClone(seed);
+    // First run: write the seed through the safe path (a concurrent first write keeps whichever came first).
+    return updateJson(file(), () => structuredClone(seed), (db) => db);
   }
-}
-
-async function write(db: Db) {
-  await fs.mkdir(path.dirname(DB_PATH), { recursive: true });
-  await fs.writeFile(DB_PATH, JSON.stringify(db, null, 2));
+  return readJson(file(), () => structuredClone(seed));
 }
 
 export async function listUsers() {
@@ -77,9 +76,8 @@ export async function getUser(id: string | undefined) {
 }
 
 export async function updateSettings(id: User["id"], patch: Partial<UserSettings>) {
-  const db = await read();
-  const user = db.users.find((u) => u.id === id);
-  if (!user) return;
-  user.settings = { ...user.settings, ...patch };
-  await write(db);
+  await updateJson(file(), () => structuredClone(seed), (db) => {
+    const user = db.users.find((u) => u.id === id);
+    if (user) user.settings = { ...user.settings, ...patch };
+  });
 }

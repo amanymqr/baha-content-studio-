@@ -83,7 +83,7 @@ check("figure-less story says details are at the link", bareReel.segments!.some(
 // Alternatives and exports
 const alts = alternatives(sales, "buyers", "ar", "hook");
 check("three distinct hook alternatives", new Set(alts).size === 3);
-const md = draftMarkdown({ story: sales, content: generateAll(sales, base), status: "review", format: "reel" }, "In review");
+const md = draftMarkdown({ story: sales, content: generateAll(sales, base), status: "review", format: "reel" });
 check("markdown export has source link and date", md.includes("https://example.invalid/story") && md.includes("2026-10-03"));
 check("markdown export has both languages", md.includes("## العربية") && md.includes("## English"));
 check("markdown export lists review notes", md.includes("ملاحظات للمراجعة"));
