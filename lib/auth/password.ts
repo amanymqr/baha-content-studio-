@@ -26,21 +26,25 @@ const scrypt = (pw: string, salt: Buffer, keylen: number, opts: ScryptOptions) =
 
 export const hashEnvName = (id: string) => `AUTH_HASH_${id.toUpperCase()}`;
 
-/** "scrypt$N$r$p$salt$hash", salt and hash in base64url. A new random salt every time. */
+/**
+ * "scrypt:N:r:p:salt:hash", salt and hash in base64url. A new random salt every time.
+ * Colons, not "$": Next.js expands "$NAME" inside .env values, which would corrupt the hash.
+ */
 export async function hashPassword(pw: string) {
   const salt = randomBytes(16);
   const key = await scrypt(pw, salt, KEYLEN, { N, r: R, p: P });
-  return `scrypt$${N}$${R}$${P}$${salt.toString("base64url")}$${key.toString("base64url")}`;
+  return `scrypt:${N}:${R}:${P}:${salt.toString("base64url")}:${key.toString("base64url")}`;
 }
 
 function parse(stored: string) {
-  const m = /^scrypt\$(\d+)\$(\d+)\$(\d+)\$([A-Za-z0-9_-]{16,})\$([A-Za-z0-9_-]{32,})$/.exec(stored.trim());
+  // The older "$" separator is still read (it works when set directly in a host's environment settings).
+  const m = /^scrypt([:$])(\d+)\1(\d+)\1(\d+)\1([A-Za-z0-9_-]{16,})\1([A-Za-z0-9_-]{32,})$/.exec(stored.trim());
   if (!m) return null;
-  const [n, r, p] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const [n, r, p] = [Number(m[2]), Number(m[3]), Number(m[4])];
   // Bounds keep a tampered value from asking for absurd work or memory.
   if (n < 1024 || n > 1 << 20 || (n & (n - 1)) !== 0 || r < 1 || r > 32 || p < 1 || p > 16) return null;
-  const salt = Buffer.from(m[4], "base64url");
-  const key = Buffer.from(m[5], "base64url");
+  const salt = Buffer.from(m[5], "base64url");
+  const key = Buffer.from(m[6], "base64url");
   // Exact sizes only: a shortened key would still match, since scrypt's shorter output is a prefix of the longer one.
   if (salt.length !== 16 || key.length !== KEYLEN) return null;
   return { n, r, p, salt, key };

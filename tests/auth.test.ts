@@ -19,11 +19,13 @@ async function main() {
   const pwB = rnd();
   const hA = await hashPassword(pwA);
   const hB = await hashPassword(pwB);
-  check("a hash is in the expected scrypt format and does not contain the password", isValidHash(hA) && hA.startsWith("scrypt$") && !hA.includes(pwA));
+  check("a hash is in the expected scrypt format and does not contain the password", isValidHash(hA) && hA.startsWith("scrypt:") && !hA.includes("$") && !hA.includes(pwA));
+  check("a hash written in the older '$' format is still accepted", await verifyPassword(pwA, hA.replace(/:/g, "$")) && isValidHash(hA.replace(/:/g, "$")));
+  check("mixed separators are refused", !isValidHash(hA.replace(":", "$")));
   check("the same password hashes differently each time (random salt)", (await hashPassword(pwA)) !== hA);
   check("the right password matches", await verifyPassword(pwA, hA));
   check("a wrong password does not match", !(await verifyPassword(`${pwA}x`, hA)) && !(await verifyPassword("", hA)));
-  check("a malformed or tampered hash never matches", !(await verifyPassword(pwA, "scrypt$16384$8$1$abc$def")) && !(await verifyPassword(pwA, hA.slice(0, -4))) && !isValidHash("plain-password") && !isValidHash(`scrypt$999999999$8$1$${hA.split("$")[4]}$${hA.split("$")[5]}`));
+  check("a malformed or tampered hash never matches", !(await verifyPassword(pwA, "scrypt$16384$8$1$abc$def")) && !(await verifyPassword(pwA, hA.slice(0, -4))) && !isValidHash("plain-password") && !isValidHash(`scrypt:999999999:8:1:${hA.split(":")[4]}:${hA.split(":")[5]}`));
 
   // Separate passwords per user
   const secret = randomBytes(32).toString("base64url");
@@ -72,6 +74,41 @@ async function main() {
   // The sign-in form sends the account the user picked, not the first one, after a failed attempt
   const form = await fs.readFile(path.join(repoRoot, "app", "login", "LoginForm.tsx"), "utf8");
   check("the form sends the chosen account from state (hidden 'user' field), and the radios are not submitted", /<input type="hidden" name="user" value=\{selected/.test(form) && /type="radio" name="account"/.test(form) && !/type="radio" name="user"/.test(form));
+
+  // set-password helpers: generated passwords and safe .env.local updates
+  const { GENERATED_LENGTH, generatePassword, setEnvLine, writeEnvHash } = await import("../scripts/set-password");
+  const gens = Array.from({ length: 50 }, () => generatePassword());
+  check(`generated passwords are ${GENERATED_LENGTH} letters/digits and all different`, gens.every((g) => g.length === GENERATED_LENGTH && GENERATED_LENGTH >= 16 && /^[A-Za-z0-9]+$/.test(g)) && new Set(gens).size === gens.length);
+  const envIn = "# comment\r\nSESSION_SECRET=keep-me\r\nAUTH_HASH_AMONA=old\r\nOTHER=1\r\n";
+  const envOut = setEnvLine(envIn, "AUTH_HASH_AMONA", "new");
+  check("setting a hash replaces only that line and keeps every other line and the line endings", envOut === "# comment\r\nSESSION_SECRET=keep-me\r\nAUTH_HASH_AMONA=new\r\nOTHER=1\r\n");
+  check("a missing hash line is appended", setEnvLine("SESSION_SECRET=keep-me\n", "AUTH_HASH_BAHA", "h") === "SESSION_SECRET=keep-me\nAUTH_HASH_BAHA=h\n" && setEnvLine("", "AUTH_HASH_BAHA", "h") === "AUTH_HASH_BAHA=h\n");
+  check("duplicate definitions collapse into one", setEnvLine("AUTH_HASH_BAHA=a\nX=1\nAUTH_HASH_BAHA=b\n", "AUTH_HASH_BAHA", "c") === "AUTH_HASH_BAHA=c\nX=1\n");
+  const envDir = await fs.mkdtemp(path.join(os.tmpdir(), "baha-env-"));
+  try {
+    const envFile = path.join(envDir, ".env.local");
+    await fs.writeFile(envFile, "SESSION_SECRET=keep-me\n");
+    await writeEnvHash(envFile, "AUTH_HASH_AMONA", hA);
+    await writeEnvHash(envFile, "AUTH_HASH_BAHA", hB);
+    const written = await fs.readFile(envFile, "utf8");
+    check("both hashes are written next to the existing secret", written === `SESSION_SECRET=keep-me\nAUTH_HASH_AMONA=${hA}\nAUTH_HASH_BAHA=${hB}\n`);
+    // Next.js reads .env.local with variable expansion ("$NAME"); the hash must come back exactly as written.
+    const { loadEnvConfig } = await import("@next/env");
+    delete process.env.AUTH_HASH_AMONA;
+    delete process.env.AUTH_HASH_BAHA;
+    loadEnvConfig(envDir, false, { info: () => {}, error: () => {} }, true);
+    check("hashes in .env.local reach the app unchanged through Next.js's env loader", process.env.AUTH_HASH_AMONA === hA && process.env.AUTH_HASH_BAHA === hB && isValidHash(process.env.AUTH_HASH_AMONA));
+    delete process.env.AUTH_HASH_AMONA;
+    delete process.env.AUTH_HASH_BAHA;
+    let refused = false;
+    try { await writeEnvHash(envFile, "AUTH_HASH_BAHA", "not-a-hash"); } catch { refused = true; }
+    check("an invalid hash is never written", refused && (await fs.readFile(envFile, "utf8")) === written);
+  } finally {
+    await fs.rm(envDir, { recursive: true, force: true });
+  }
+  let noTty = "";
+  try { execFileSync(process.execPath, [path.join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs"), "--conditions=react-server", path.join(repoRoot, "scripts", "set-password.ts"), "amona"], { cwd: os.tmpdir(), input: "typed-in-the-clear\ntyped-in-the-clear\n", encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] }); } catch (e) { noTty = `${(e as { stdout?: string }).stdout ?? ""}${(e as { stderr?: string }).stderr ?? ""}`; }
+  check("without a real terminal, typing is refused and the input is never echoed", noTty.includes("can't hide typing") && !noTty.includes("typed-in-the-clear"), noTty);
 
   // Failed sign-in limit, stored on the server
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "baha-auth-"));
