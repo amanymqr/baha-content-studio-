@@ -5,7 +5,7 @@ import { checkPassword } from "./auth/password";
 import { lockedUntil, recordFailure, recordSuccess } from "./auth/lockout";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { getUser, updateSettings, type ContentLanguage, type Locale, type User, type UserSettings } from "./db";
+import { getUser, updateSettings, type ContentLanguage, type Locale, type UserSettings } from "./db";
 import { SESSION_COOKIE, requireUser } from "./session";
 import { SESSION_MAX_AGE_S, sessionSecret, signSession } from "./session-token";
 
@@ -39,9 +39,14 @@ export async function signOut() {
   redirect("/login");
 }
 
-export async function setInterfaceLanguage(locale: Locale, userId?: User["id"]) {
+const LOCALES: Locale[] = ["ar", "en"];
+const CONTENT_LANGUAGES: ContentLanguage[] = ["ar", "en", "both"];
+
+/** Changes the interface language of the signed-in account only. */
+export async function setInterfaceLanguage(locale: Locale) {
   const me = await requireUser();
-  await updateSettings(userId ?? me.id, { interfaceLanguage: locale });
+  if (!LOCALES.includes(locale)) return;
+  await updateSettings(me.id, { interfaceLanguage: locale });
   revalidatePath("/", "layout");
 }
 
@@ -51,11 +56,15 @@ export async function setContentLanguage(lang: ContentLanguage) {
   revalidatePath("/", "layout");
 }
 
-export async function saveSettings(patch: Pick<UserSettings, "contentLanguage" | "notifications" | "explanations">, languages: Partial<Record<User["id"], Locale>>) {
+/** Saves the signed-in account's own settings. Each account's interface language is its own; nobody changes another account's settings. */
+export async function saveSettings(patch: Pick<UserSettings, "interfaceLanguage" | "contentLanguage" | "notifications" | "explanations">) {
   const me = await requireUser();
-  await updateSettings(me.id, patch);
-  for (const [id, locale] of Object.entries(languages)) {
-    if (locale) await updateSettings(id as User["id"], { interfaceLanguage: locale });
-  }
+  if (!LOCALES.includes(patch.interfaceLanguage) || !CONTENT_LANGUAGES.includes(patch.contentLanguage)) return;
+  await updateSettings(me.id, {
+    interfaceLanguage: patch.interfaceLanguage,
+    contentLanguage: patch.contentLanguage,
+    notifications: patch.notifications,
+    explanations: patch.explanations,
+  });
   revalidatePath("/", "layout");
 }

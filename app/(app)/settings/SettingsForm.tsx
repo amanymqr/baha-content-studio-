@@ -37,7 +37,9 @@ function Row({ title, body, checked, onChange }: { title: string; body: string; 
 }
 
 export function SettingsForm({ t, meId, users, settings }: { t: Dict["settings"]; meId: User["id"]; users: U[]; settings: UserSettings }) {
-  const [languages, setLanguages] = useState<Record<string, Locale>>(Object.fromEntries(users.map((u) => [u.id, u.interfaceLanguage])));
+  // Each account sets only its own interface language.
+  const me = users.find((u) => u.id === meId);
+  const [language, setLanguage] = useState<Locale>(me?.interfaceLanguage ?? settings.interfaceLanguage);
   const [content, setContent] = useState<ContentLanguage>(settings.contentLanguage);
   const [notifications, setNotifications] = useState(settings.notifications);
   const [explanations, setExplanations] = useState(settings.explanations);
@@ -45,14 +47,14 @@ export function SettingsForm({ t, meId, users, settings }: { t: Dict["settings"]
   const [saved, setSaved] = useState(false);
 
   const reset = () => {
-    setLanguages(Object.fromEntries(users.map((u) => [u.id, u.interfaceLanguage])));
+    setLanguage(me?.interfaceLanguage ?? settings.interfaceLanguage);
     setContent(settings.contentLanguage);
     setNotifications(settings.notifications);
     setExplanations(settings.explanations);
   };
   const save = () =>
     start(async () => {
-      await saveSettings({ contentLanguage: content, notifications, explanations }, languages);
+      await saveSettings({ interfaceLanguage: language, contentLanguage: content, notifications, explanations });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     });
@@ -77,12 +79,12 @@ export function SettingsForm({ t, meId, users, settings }: { t: Dict["settings"]
         <div className="flex flex-col gap-6">
           <Card icon={<Globe className="size-5" />} title={t.interfaceTitle} sub={t.interfaceSub}>
             <div className="flex flex-col gap-3">
-              {users.map((u) => (
-                <div key={u.id} className="flex items-center gap-4 rounded-lg border border-line bg-canvas p-4">
-                  <div className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-tint t-caption font-semibold text-accent">{u.initials}</div>
+              {me && (
+                <div className="flex items-center gap-4 rounded-lg border border-line bg-canvas p-4">
+                  <div className="grid size-9 shrink-0 place-items-center rounded-full bg-accent-tint t-caption font-semibold text-accent">{me.initials}</div>
                   <div className="min-w-0 flex-1">
-                    <div className="t-h3">{u.id === meId ? `${t.you} · ${u.role}` : `${u.name} · ${u.role}`}</div>
-                    <div className="t-caption text-ink-2">{u.id === meId ? t.defaultForYou : t.bahaHint}</div>
+                    <div className="t-h3">{`${t.you} · ${me.role}`}</div>
+                    <div className="t-caption text-ink-2">{t.ownLanguageOnly}</div>
                   </div>
                   <div className="flex shrink-0 gap-1 rounded-md bg-elevated p-1" dir="ltr">
                     {(["en", "ar"] as Locale[]).map((l) => (
@@ -90,17 +92,17 @@ export function SettingsForm({ t, meId, users, settings }: { t: Dict["settings"]
                         key={l}
                         type="button"
                         lang={l}
-                        aria-pressed={languages[u.id] === l}
-                        onClick={() => setLanguages((s) => ({ ...s, [u.id]: l }))}
-                        className={cx("flex h-9 items-center gap-1.5 rounded-[8px] px-3 t-small", languages[u.id] === l ? "bg-surface font-semibold text-ink shadow-soft" : "text-muted")}
+                        aria-pressed={language === l}
+                        onClick={() => setLanguage(l)}
+                        className={cx("flex h-9 items-center gap-1.5 rounded-[8px] px-3 t-small", language === l ? "bg-surface font-semibold text-ink shadow-soft" : "text-muted")}
                       >
-                        {languages[u.id] === l && <Check className="size-4 text-accent" />}
+                        {language === l && <Check className="size-4 text-accent" />}
                         {l === "ar" ? t.arabic : t.english}
                       </button>
                     ))}
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           </Card>
 

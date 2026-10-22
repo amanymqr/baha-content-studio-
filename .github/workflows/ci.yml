@@ -1,0 +1,31 @@
+# Checks every pull request: TypeScript, the test suites and a production build.
+# Read-only: no secrets, no deployment. The build does not need SESSION_SECRET or
+# the password hashes (they are only checked when the server starts), and the
+# tests generate their own random values.
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
