@@ -9,7 +9,7 @@ import { SOURCES } from "../news/sources";
 import { readNews } from "../news/store";
 import { generateAll, snapshotOf } from "./generate";
 import { withHistory } from "./normalize";
-import { getDraft, patchDraft, putDraft, removeDraft } from "./store";
+import { DraftConflictError, getDraft, patchDraft, putDraft, removeDraft } from "./store";
 import { applySave } from "./workflow";
 import { AUDIENCES, DURATIONS, SLIDE_MAX, SLIDE_MIN, STATUSES, type Draft, type DraftOptions, type DraftStatus } from "./types";
 
@@ -34,7 +34,8 @@ const Content = z.object({
   slides: z.array(z.object({ title: text(300), body: text(1500), visual: text(600), highlight: text(200), kind: Kind, note: text(1200).optional() })).max(SLIDE_MAX + 5).optional(),
 });
 const Status = z.enum(STATUSES as [DraftStatus, ...DraftStatus[]]);
-const Save = z.object({ status: Status.optional(), content: z.object({ ar: Content.optional(), en: Content.optional() }) });
+/** baseUpdatedAt: the draft's updatedAt when the editor loaded it; a newer stored copy means someone else saved meanwhile. */
+const Save = z.object({ status: Status.optional(), content: z.object({ ar: Content.optional(), en: Content.optional() }), baseUpdatedAt: z.string().max(40).optional() });
 
 /** Drafts feed the dashboard, the library and the sidebar counts, so every change refreshes all of them. */
 const refresh = () => revalidatePath("/", "layout");
@@ -83,10 +84,17 @@ export async function saveDraft(id: string, data: unknown): Promise<{ ok: true; 
   const user = await requireUser();
   const parsed = Save.safeParse(data);
   if (!parsed.success) return { error: "invalid" };
-  const { status, content } = parsed.data;
+  const { status, content, baseUpdatedAt } = parsed.data;
   if (!content.ar && !content.en) return { error: "invalid" };
   const at = new Date().toISOString();
-  const saved = await patchDraft(id, (d) => applySave(d, { status, content }, user.id, at));
+  let saved: Draft | null;
+  try {
+    saved = await patchDraft(id, (d) => applySave(d, { status, content }, user.id, at), { expectedUpdatedAt: baseUpdatedAt });
+  } catch (e) {
+    // Someone saved this draft after it was opened here: keep both versions safe and let the user decide.
+    if (e instanceof DraftConflictError) return { error: "conflict" };
+    throw e;
+  }
   if (!saved) return { error: "not_found" };
   refresh();
   return { ok: true, updatedAt: saved.updatedAt, draft: saved };

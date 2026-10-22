@@ -198,6 +198,32 @@ async function storeChecks() {
     await store.patchDraft("old1", (x) => applySave(x, { content: edited(x) }, "amona", new Date().toISOString()));
     const reopened = JSON.parse(await fs.readFile(file, "utf8")).drafts.old1;
     check("edited approved text is stored back in review", reopened.status === "review" && reopened.content.ar.caption.endsWith("(معدّل)") && !!after.drafts.broken);
+
+    // Safe storage layer: backups, simultaneous saves and conflicts
+    const backups = await fs.readdir(path.join(dir, "data", "backups")).catch(() => [] as string[]);
+    check("drafts.json gets a daily backup before the day's first change", backups.some((n) => /^drafts-\d{4}-\d{2}-\d{2}\.json$/.test(n)));
+    await store.putDraft(draft("c1"));
+    await store.putDraft(draft("c2"));
+    await Promise.all([
+      store.patchDraft("c1", (x) => ({ ...x, status: "review" })),
+      store.patchDraft("c2", (x) => ({ ...x, status: "changes" })),
+      store.putDraft(draft("c3")),
+    ]);
+    const both = JSON.parse(await fs.readFile(file, "utf8")).drafts;
+    check("changes saved at the same moment are all kept", both.c1.status === "review" && both.c2.status === "changes" && !!both.c3 && !!both.old1 && !!both.broken);
+    const opened = (await store.getDraft("c1"))!;
+    const stamp = new Date(Date.now() + 1000).toISOString();
+    await store.patchDraft("c1", (x) => ({ ...x, content: edited(x), updatedAt: stamp }), { expectedUpdatedAt: opened.updatedAt });
+    const beforeConflict = await fs.readFile(file, "utf8");
+    let conflict: unknown = null;
+    try { await store.patchDraft("c1", (x) => ({ ...x, status: "approved" }), { expectedUpdatedAt: opened.updatedAt }); } catch (e) { conflict = e; }
+    check("a save based on an older copy is refused (someone saved meanwhile)", conflict instanceof store.DraftConflictError && (conflict as InstanceType<typeof store.DraftConflictError>).current.updatedAt === stamp);
+    check("a refused save writes nothing", (await fs.readFile(file, "utf8")) === beforeConflict);
+    check("a save based on the current copy goes through", (await store.patchDraft("c1", (x) => ({ ...x, status: "approved" }), { expectedUpdatedAt: stamp }))?.status === "approved");
+    await fs.writeFile(file, JSON.stringify({ drafts: [] }));
+    let shape = false;
+    try { await store.putDraft(draft("x")); } catch { shape = true; }
+    check("a drafts file with the wrong shape reads as empty and is never written over", shape && (await store.readDrafts()).drafts.length === 0 && (await fs.readFile(file, "utf8")) === JSON.stringify({ drafts: [] }));
     await fs.writeFile(file, "{ not json");
     let threw = false;
     try { await store.putDraft(draft("new")); } catch { threw = true; }

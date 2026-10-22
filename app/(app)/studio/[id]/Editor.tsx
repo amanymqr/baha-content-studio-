@@ -114,7 +114,7 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now, peop
   /** Saves the edits on screen. Resolves true when they were stored. */
   const persist = async () => {
     setError(null);
-    const res = await saveDraft(draft.id, { content });
+    const res = await saveDraft(draft.id, { content, baseUpdatedAt: draft.updatedAt });
     if ("error" in res) {
       setError(t.saveErrors[res.error as keyof T["saveErrors"]] ?? t.saveErrors.failed);
       setToast({ text: t.saveErrors.failed, tone: "error" });
@@ -140,7 +140,7 @@ export function Editor({ initial, t, locale, categoryLabel, aiWriting, now, peop
     if (dirty && !(await confirm({ title: t.dirtyStatusTitle, body: t.dirtyStatusBody.replace("{status}", label), confirm: t.saveAndChange, cancel: t.cancel }))) return;
     startBusy(async () => {
       setError(null);
-      const res = dirty ? await saveDraft(draft.id, { status: next, content }) : await setDraftStatus(draft.id, next);
+      const res = dirty ? await saveDraft(draft.id, { status: next, content, baseUpdatedAt: draft.updatedAt }) : await setDraftStatus(draft.id, next);
       if ("error" in res) return setToast({ text: t.saveErrors[res.error as keyof T["saveErrors"]] ?? t.saveErrors.failed, tone: "error" });
       setStatus(next);
       setDraft(res.draft);
